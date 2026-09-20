@@ -14,6 +14,9 @@ erl_crash.dump
 # Environment
 .env
 .env.*
+# ...except the canonical template of the portable layer: it IS part of the
+# standard (SPEC-config.md §Optional commons points at it) and is tracked.
+!skeleton/overlay/.env.example
 
 # OS / editor
 .DS_Store
