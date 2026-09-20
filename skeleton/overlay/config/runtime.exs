@@ -33,16 +33,21 @@ if config_env() == :prod do
   # the boot (`bad_certificate selfsigned_peer`, with a misleading "killed"
   # while creating the database). ECTO_SSL=false turns it off;
   # ECTO_SSL_VERIFY=true goes back to strict verification.
+  #
+  # The TLS options go INSIDE `ssl:` (a keyword list). Postgrex >= 0.22
+  # deprecated the old pair `ssl: true, ssl_opts: [...]` and logs
+  # ":ssl_opts is deprecated, pass opts to :ssl instead" on every connection,
+  # so the deprecated form would print a warning per pool connection at boot.
   maybe_ssl =
     cond do
       System.get_env("ECTO_SSL") in ~w(false 0) ->
         []
 
       System.get_env("ECTO_SSL_VERIFY") in ~w(true 1) ->
-        [ssl: true, ssl_opts: [verify: :verify_peer, cacerts: :public_key.cacerts_get()]]
+        [ssl: [verify: :verify_peer, cacerts: :public_key.cacerts_get()]]
 
       true ->
-        [ssl: true, ssl_opts: [verify: :verify_none]]
+        [ssl: [verify: :verify_none]]
     end
 
   config :{{app}},
