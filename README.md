@@ -121,6 +121,26 @@ The doc **reflects the code**: everything it asserts can be pointed at in
 `lib/<app>_web/…` or `assets/css/app.css`. If the code changes, the doc changes
 with it.
 
+## Going to production (where each piece lives)
+
+This repo is an index: the production guide is not duplicated here, it lives in
+the spec that owns each piece.
+
+| What you need | Where it is |
+|---|---|
+| Env vars **required in production** (the boot dies without them) | `SPEC-config.md` §Required in production |
+| Optional vars with their defaults | `SPEC-config.md` §Optional commons |
+| Ready-to-copy template with every variable and a safe default | `skeleton/overlay/.env.example` (materialized into the app as `.env.example`) |
+| Container: build/runtime stages, ports, healthcheck, the `force_ssl` gate | `SPEC-docker.md` §Build stage · §Runtime stage · §Ports |
+| First deploy (create DB → migrate → seed) and the first account | `SPEC-docker.md` §Entrypoint · `BOOTSTRAP.md` §After the bootstrap |
+| Verifying before pushing (release, smoke, image) | `SPEC-docker.md` §Verification before pushing |
+| Pinned versions (toolchain, images, deps) | `VERSIONS.md` |
+| Auditing a live app against the standard | `SPEC-docker.md` §Known gaps |
+
+Rule: **the skeleton boots with the five required variables of
+`SPEC-config.md` and nothing else**; whatever an app needs beyond that is
+declared in its own `runtime.exs` (`SPEC-config.md` §The app's own variables).
+
 ## The theme
 
 One line in `app.css` plus `data-theme` in `root.html.heex`. The family runs
