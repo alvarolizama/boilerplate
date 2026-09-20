@@ -26,6 +26,8 @@ DOCS = [
     "SPEC-design.md",
     "SPEC-config.md",
     "SPEC-docker.md",
+    "SPEC-auth.md",
+    "SPEC-identity.md",
     "BOOTSTRAP.md",
     "VERSIONS.md",
 ]

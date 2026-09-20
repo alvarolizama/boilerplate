@@ -22,9 +22,11 @@ código. Cualquier agente que llegue a una app de la familia empieza por acá.
 | 2 | `SPEC-design.md` | cómo se aplica el Commons al código y cómo se verifica |
 | 3 | `SPEC-config.md` | env vars, sesión/cookies, settings en base de datos |
 | 4 | `SPEC-docker.md` | Dockerfile, entrypoint, healthcheck, puertos |
-| 5 | `VERSIONS.md` | versiones pinneadas (toolchain, imágenes, deps) |
-| 6 | `BOOTSTRAP.md` | cómo nace una app, paso a paso |
-| 7 | `skeleton/` | la capa portátil ya materializada, con placeholders |
+| 5 | `SPEC-auth.md` | cómo entra la gente: usuario/contraseña, Google, Umbral (opcionales) + perfiles |
+| 6 | `SPEC-identity.md` | el detalle del modo SSO con Umbral (opcional) |
+| 7 | `VERSIONS.md` | versiones pinneadas (toolchain, imágenes, deps) |
+| 8 | `BOOTSTRAP.md` | cómo nace una app, paso a paso |
+| 9 | `skeleton/` | la capa portátil ya materializada, con placeholders |
 
 Los specs citan `archivo:línea` de la implementación de referencia, con caminos
 relativos a `~/Workspace/Repos/alvarolizama/`, y se verifican mecánicamente:
@@ -73,6 +75,8 @@ boilerplate/
 ├── SPEC-design.md     # Commons → archivos → verificación → propagación
 ├── SPEC-config.md     # env vars, sesión, settings en BD
 ├── SPEC-docker.md     # contenedor, entrypoint, healthcheck, puertos
+├── SPEC-auth.md       # modos de entrada (password, Google, Umbral) + perfiles
+├── SPEC-identity.md   # el modo SSO con Umbral, en detalle
 ├── VERSIONS.md        # versiones pinneadas
 ├── BOOTSTRAP.md       # nacer una app (procedimiento mecánico)
 ├── skeleton/          # capa portátil con placeholders <app>/<App>/<APP>
