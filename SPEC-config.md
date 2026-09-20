@@ -55,6 +55,20 @@ is never ported into the skeleton.
 | `SKIP_MIGRATIONS` | unset | the entrypoint skips setup |
 | `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` / `_ALLOWED_DOMAINS` / `_REDIRECT_URI` | unset | sign-in with Google |
 
+### Database TLS: the shape of the option
+
+`ECTO_SSL` / `ECTO_SSL_VERIFY` land in the Repo options as **`ssl: [ … ]`**, a
+keyword list:
+
+```elixir
+[ssl: [verify: :verify_none]]                                        # default: encrypted, not verified
+[ssl: [verify: :verify_peer, cacerts: :public_key.cacerts_get()]]    # ECTO_SSL_VERIFY=true
+```
+
+Postgrex **deprecated the old pair** `ssl: true, ssl_opts: [ … ]`: it still
+works, but it logs `":ssl_opts is deprecated, pass opts to :ssl instead"` once
+per pool connection, so the deprecated shape fills the boot log of every deploy.
+
 Ready-to-copy template: **`skeleton/overlay/.env.example`** — every core
 variable with its comment and its safe default, grouped in core / session /
 optional.

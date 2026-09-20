@@ -7,8 +7,8 @@ it is ported into live apps.
 
 | Piece | Version | Where it is pinned |
 |---|---|---|
-| Elixir | **1.20.1-otp-29** | `.tool-versions` (asdf/mise) |
-| Erlang/OTP | **29.0.2** | `.tool-versions` |
+| Elixir | **1.20.1-otp-29** | `.tool-versions` (asdf/mise) — carried by `skeleton/overlay/` and copied into the app by the bootstrap |
+| Erlang/OTP | **29.0.2** | `.tool-versions` (same file, same origin) |
 | `mix.exs` `elixir:` | `~> 1.15` | the declared range, not the real pin |
 | Build image | `hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim` | `skeleton/overlay/Dockerfile` (ARG `ELIXIR_IMAGE`) |
 | Runtime image | `debian:bookworm-20260713-slim` | `skeleton/overlay/Dockerfile` (ARG `DEBIAN_RUNTIME`) |

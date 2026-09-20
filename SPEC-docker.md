@@ -67,6 +67,12 @@ the container reports itself down during startup. If an app needs a DB-backed
 readiness, it goes on **another** route (`/ready`), and that is the one the proxy
 watches.
 
+The portable layer ships the probe **with its test**
+(`test/<app>_web/controllers/health_controller_test.exs`). That test runs
+without a sandbox owner, so a `/health` that queries the database answers 503
+there and the suite goes red: the regression the rule above is about, caught in
+`mix precommit` instead of in production.
+
 ## Entrypoint
 
 Canonical shape:
@@ -115,6 +121,8 @@ MIX_ENV=prod mix release
 ls _build/prod/rel/<app>/bin/          # <app>, migrate, server, setup
 
 # 2. it boots with fake config (fails if runtime.exs is broken)
+#    (any value works for `eval`; to actually SERVE, SECRET_KEY_BASE needs >= 64
+#     bytes — see the notes below)
 DATABASE_URL=ecto://nope:nope@127.0.0.1:1/nope SECRET_KEY_BASE=test \
   PHX_HOST=localhost SESSION_SIGNING_SALT=a SESSION_ENCRYPTION_SALT=b \
   _build/prod/rel/<app>/bin/<app> eval "IO.puts(:ok)"     # -> :ok
@@ -127,6 +135,12 @@ curl -fsS http://127.0.0.1:4000/health
 > `mix assets.deploy` **before** `mix compile` in `:prod` fails with
 > `Can't resolve 'phoenix-colocated/<app>/colocated.css'`: colocated assets are
 > generated while compiling. The Dockerfile already respects that order.
+>
+> `SECRET_KEY_BASE` must be **at least 64 bytes** to actually serve: with a
+> short one, every request that writes the session cookie dies with
+> `cookie store expects conn.secret_key_base to be at least 64 bytes`
+> (`Plug.Session.COOKIE`). The `eval` smoke above tolerates any value; a real
+> boot does not. `mix phx.gen.secret` already emits a valid one.
 >
 > Against a local Postgres without TLS you must pass `ECTO_SSL=false`: the
 > default is SSL on and the symptom is misleading (`ssl not available` +

@@ -45,7 +45,7 @@ partitioned tables it does not need.
 
 | Layer | What it holds | Where it goes |
 |---|---|---|
-| **Portable** | domain-free Dockerfile, `docker/entrypoint.sh`, `config/*.exs`, the endpoint session block, `release.ex`, DB-free `/health`, `.dockerignore`, `.env.example`, `mix` aliases | `skeleton/` → a new app |
+| **Portable** | domain-free Dockerfile, `docker/entrypoint.sh`, `config/*.exs`, the endpoint session block, `release.ex`, DB-free `/health` **with its test**, `.dockerignore`, `.env.example`, `.tool-versions` (the toolchain pin) | `skeleton/` → a new app |
 | **App domain** | proxy + gzip, webhooks, partitioned tables, notifications, budgets, provider catalog, Oban crons, vector search/inference, upload pipeline | stays in that app |
 
 ## Two different cycles — do not confuse them
@@ -72,7 +72,7 @@ boilerplate/
 ├── SPEC-identity.md   # the SSO mode with Umbral, in detail
 ├── VERSIONS.md        # pinned versions
 ├── BOOTSTRAP.md       # birthing an app (mechanical procedure)
-└── skeleton/          # portable layer with <app>/<App>/<APP> placeholders
+└── skeleton/          # bootstrap.sh + overlay/ (portable layer) + check-commons.sh
 ```
 
 ## Starting an app (summary)
@@ -108,6 +108,10 @@ the app compiling. The detail, the traps and the exact order are in
 - On merge, the change propagates by **copying the block** into the apps'
   `DESIGN.md`: there cannot be two live versions of the same Commons.
 - If you change the Commons, change it in **every** `DESIGN.md`.
+- To see where each app stands — and what a change still owes — run
+  `bash skeleton/check-commons.sh <app-dir> [<app-dir>…]`: it compares each
+  app's Commons against this file (ignoring the prescribed `---` separator) and
+  exits non-zero when one drifted. Read-only: it never writes to the apps.
 
 ### Split criterion
 

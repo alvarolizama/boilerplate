@@ -19,7 +19,7 @@ In order, it:
 
 | Step | What |
 |---|---|
-| 1 | `mix phx.new <scratch> --app <app> --binary-id --no-version-check` |
+| 1 | `mix phx.new <scratch> --app <app> --binary-id --no-install --no-version-check` |
 | 2 | `rsync` of the scaffold into the target (keeps the repo's `README.md` and `.gitignore`) |
 | 3 | copies `skeleton/overlay/**` replacing `{{app}}` / `{{App}}` / `{{APP}}` and **fails if any placeholder is left** |
 | 4 | merges the family entries into `.gitignore` (`.riel/`, `/priv/static/uploads/`, `erl_crash.dump`) |
@@ -29,7 +29,7 @@ In order, it:
 **It does not** (it prints this at the end): `mix deps.get`, create the
 database, the first commit.
 
-### What the overlay brings (16 files)
+### What the overlay brings (18 files)
 
 | File | What it contributes |
 |---|---|
@@ -37,11 +37,13 @@ database, the first commit.
 | `docker/entrypoint.sh` | `Release.setup` → `start`, `SKIP_MIGRATIONS=1` |
 | `.dockerignore` | includes `priv/static/uploads/` (an audit finding in a live app) |
 | `.env.example` | the complete variable template |
+| `.tool-versions` | the toolchain pin (`elixir`, `erlang`) — `VERSIONS.md` §Toolchain |
 | `config/runtime.exs` | env vars, fail-closed boot, database TLS, `CHECK_ORIGINS` |
 | `config/prod.exs` | `cache_static_manifest`, the `force_ssl` gate, Swoosh |
 | `lib/<app>/release.ex` | idempotent `setup/0` · `create/0` · `migrate/0` · `seed/0` |
 | `lib/<app>_web/endpoint.ex` | the family session block (`renew: true`, distinct salts) |
 | `lib/<app>_web/controllers/health_controller.ex` | `/health` that does not touch the database |
+| `test/<app>_web/controllers/health_controller_test.exs` | pins the probe (200, no session) and goes red if `/health` queries the DB |
 | `rel/overlays/bin/{migrate,setup,server}` + `.bat` | the release bins |
 | `priv/repo/seeds_prod.exs` | documented stub for the production seed (opt-in) |
 | `lib/<app>_web/router.ex` | **not an overlay**: the bootstrap inserts the `GET /health` route |
@@ -62,6 +64,11 @@ And for the UI: copy the Commons (`../DESIGN.md`) as-is + your
 
 ## Traps (all seen for real)
 
+- **`mix phx.new` PROMPTS to fetch deps and install assets.** The bootstrap
+  passes `--no-install`, so the scaffold brings code only: an answer of "yes"
+  (or a changed default) would leave `deps/` and `assets/node_modules/` in the
+  scratch dir, and the `rsync` — which excludes only `.git`, `README.md` and
+  `.gitignore` — would copy them into the app.
 - **`mix phx.new` aborts over a non-empty directory and has no `--force`.** That
   is why the scaffold goes to a scratch and is copied with `rsync` — and why the
   app's repo keeps its own `README.md` (product, in English) and its

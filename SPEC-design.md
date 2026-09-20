@@ -66,7 +66,10 @@ grep -rn 'table-zebra\|@apply' lib/ assets/css/                        # 0 (§C2
 3. Write `## Custom — <App>` with what is exclusive (its own shell, the role of
    its tokens, its brand, screens no other app has).
 4. Verify the Commons came out identical: the app's `DESIGN.md` must start with
-   the Commons as-is.
+   the Commons as-is — mechanically, with
+   `bash skeleton/check-commons.sh <app-dir> [<app-dir>…]`: it compares the
+   Commons above `## Custom —` against this repo's `DESIGN.md`, ignores the
+   prescribed `---` separator, and exits 1 when an app drifted. Read-only.
 5. Atomic commits, separating UI from docs.
 
 ## Anti-patterns
