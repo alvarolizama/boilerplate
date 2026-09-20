@@ -22,9 +22,14 @@ follow when one does.
    verified against the JWKS (`kid`, signature, `iss`, `aud`, `exp`) before a
    single claim is read, or `/userinfo` is called with the bearer. Fail closed:
    any check rejected means no session.
-3. **The app never stores Umbral passwords**, and never keeps a second directory
-   with a second password: the identity of the family is the email, and
-   duplicating it breaks the matrix.
+3. **The app never stores Umbral passwords** — neither a field for the IdP's
+   password nor a hash of one — and never keeps a **second directory** for the
+   same person: the identity of the family is the email, and duplicating it
+   breaks the matrix. The app's **own** local password is a different thing: it
+   is a mode of the app (`SPEC-auth.md` §How they combine). Adopting this
+   contract **never** makes a local `password_hash` nullable: an app in modes 1–2
+   keeps it **required**, and an app in **SSO only** has no credentials table at
+   all instead of a nullable column.
 4. **The app does not create people in Umbral**; for that there is delegated
    provisioning (`POST /api/v1/users`, which leaves a `pending` invitation for a
    human to approve).
@@ -85,8 +90,9 @@ no Hex package; publishing it is a pending human decision):
    stored in the app's session; the callback compares it and **consumes it even
    when it fails**.
 4. **Identity → local profile:** upsert by `sub` (falling back to `email`) with
-   `provider: "sso"`, refreshing `name`, **with no password**, and only then the
-   app's session.
+   `provider: "sso"`, refreshing `name`, writing **no** password — and clearing
+   none, so a person who already had a local credential keeps it — and only then
+   the app's session.
 5. **Pipeline:** `plug Umbral.Plug, client: …` leaves `current_user` in the
    assigns; **every privileged `live_session` carries its mirror `on_mount`**
    (`Umbral.LiveAuth, :require_user`) — the websocket does not go through plugs
