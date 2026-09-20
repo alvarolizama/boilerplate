@@ -607,9 +607,13 @@ padding.
    el contenido de la página**. Con contenido largo scrollea el shell ENTERO — la
    barra del contenido y la sidebar se van con la rueda, y `main` se queda sin
    scroll propio — en lugar de scrollear el contenido por dentro con la sidebar
-   fija. `repeat(1, minmax(0, 1fr))` acota la fila al viewport: el `minmax(0, …)`
-   es lo que permite bajar por debajo del contenido, y funciona porque daisyUI
-   (≥5.5) ya pone `grid-row-start: 1` en `.drawer-content` y `.drawer-side`.
+   fija. Hay **dos palancas equivalentes** y la familia usa las dos: la utilidad
+   en el markup (`lg:grid-rows-1`, que funciona porque daisyUI ya trae
+   `grid-row-start: 1` en los dos hijos) o la regla en `app.css`
+   (`grid-auto-rows: minmax(0, 1fr)` sobre `.drawer`, que es la general — vale
+   también si la fila fuera de verdad implícita, con items auto-colocados).
+   **Una de las dos, nunca ninguna.** `repeat(1, minmax(0, 1fr))` acota la fila al
+   viewport: el `minmax(0, …)` es lo que permite bajar por debajo del contenido.
    **Scope `lg`**, no negociable: en `< lg` el `.drawer-side` es overlay
    `position: fixed` y no hay columna que acotar (móvil se comporta igual con y
    sin la clase).
@@ -681,7 +685,8 @@ grep -rn '@apply' assets/css/                                           # 0
 grep -rn 'table-zebra' lib/                                             # 0 (sin zebra, §C6)
 grep -rn 'overflow-x-auto' lib/                                         # tablas/paneles anchos envueltos (§C3)
 grep -c 'for="sidebar-collapse"' lib/<app>_web/components/layouts.ex    # 1 (toggle único, §C12.1)
-grep -c 'class="drawer lg:drawer-open lg:grid-rows-1' lib/<app>_web/components/layouts.ex  # 1 (fila del drawer acotada, §C12.5)
+grep -c 'class="drawer lg:drawer-open[^"]*lg:grid-rows-1' lib/<app>_web/components/layouts.ex  # 1 (fila del drawer acotada, §C12.5)
+grep -c 'grid-auto-rows: minmax(0, 1fr)' assets/css/app.css             # 1 si la palanca es el CSS (§C12.5)
 grep -c 'aside[^>]*label for="sidebar' lib/<app>_web/components/layouts.ex  # 0 (el sidebar no lleva toggle propio)
 grep -rn 'p-4 sm:p-6\|p-4 pb-16 sm:p-6' lib/                            # padding mobile-first (§C3.1)
 grep -rnE '#[0-9a-fA-F]{3,6}\b' lib/ assets/css/app.css                 # 0 fuera de marca (§C2.1) y paletas nombradas (§C9)
