@@ -8,6 +8,7 @@
 #   1. `mix phx.new` into a scratch dir (--app <name> --binary-id --no-install)
 #   2. rsync of the scaffold into the target (keeps the repo's README.md and .gitignore)
 #   3. copies `skeleton/overlay/**` replacing {{app}} / {{App}} / {{APP}}
+#      (its README.md is skipped when the target already has one)
 #   4. merges the family entries into .gitignore
 #   5. applies the `dim` theme (app.css + data-theme in root.html.heex)
 #
@@ -106,6 +107,12 @@ subs = [("{{app}}", app), ("{{App}}", camel), ("{{APP}}", upper)]
 
 written = 0
 written_paths = []
+kept = []
+
+# The app's repo keeps its own README.md: the scaffold's is already excluded by
+# the rsync, so the overlay's README only lands when the app has none. An app
+# born into an existing repo is never clobbered.
+keep_readme = os.path.isfile(os.path.join(target, "README.md"))
 
 for root, _dirs, files in os.walk(overlay):
     for name in files:
@@ -113,6 +120,10 @@ for root, _dirs, files in os.walk(overlay):
         rel = os.path.relpath(src, overlay)
         for needle, value in subs:
             rel = rel.replace(needle, value)
+
+        if rel == "README.md" and keep_readme:
+            kept.append(rel)
+            continue
 
         dst = os.path.join(target, rel)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
@@ -133,6 +144,8 @@ if written == 0:
     sys.exit("error: empty overlay")
 
 print(f"      overlay files: {written}")
+if kept:
+    print(f"      kept (already in the target): {', '.join(kept)}")
 
 # The check looks ONLY at the overlay files: the scaffold's `{{…}}` are
 # legitimate HEEx syntax (`:for={{id, msg} <- @streams.messages}`).

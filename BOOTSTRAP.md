@@ -21,7 +21,7 @@ In order, it:
 |---|---|
 | 1 | `mix phx.new <scratch> --app <app> --binary-id --no-install --no-version-check` |
 | 2 | `rsync` of the scaffold into the target (keeps the repo's `README.md` and `.gitignore`) |
-| 3 | copies `skeleton/overlay/**` replacing `{{app}}` / `{{App}}` / `{{APP}}` and **fails if any placeholder is left** |
+| 3 | copies `skeleton/overlay/**` replacing `{{app}}` / `{{App}}` / `{{APP}}` and **fails if any placeholder is left** (an existing `README.md` is kept, never clobbered) |
 | 4 | merges the family entries into `.gitignore` (`.riel/`, `/priv/static/uploads/`, `erl_crash.dump`) |
 | 5 | applies the `dim` theme: `themes: dim --default` in `app.css`, deletes the scaffold's themes/variant, sets `data-theme="dim"` in `root.html.heex`, deletes the inline switcher, adds `favicon.svg` to `static_paths` |
 | 6 | adds the `GET /health` route to the router (a scope with no pipeline, outside `:browser`) |
@@ -29,10 +29,11 @@ In order, it:
 **It does not** (it prints this at the end): `mix deps.get`, create the
 database, the first commit.
 
-### What the overlay brings (18 files)
+### What the overlay brings (19 files)
 
 | File | What it contributes |
 |---|---|
+| `README.md` | the product README skeleton (what it is, local run, configuration, production) — written only when the app has none |
 | `Dockerfile` | the canonical multi-stage build (OOM guard, healthcheck, non-root, no `EXPOSE`) |
 | `docker/entrypoint.sh` | `Release.setup` → `start`, `SKIP_MIGRATIONS=1` |
 | `.dockerignore` | includes `priv/static/uploads/` (an audit finding in a live app) |
@@ -73,6 +74,11 @@ And for the UI: copy the Commons (`../DESIGN.md`) as-is + your
   is why the scaffold goes to a scratch and is copied with `rsync` — and why the
   app's repo keeps its own `README.md` (product, in English) and its
   `.gitignore`.
+- **The overlay's `README.md` only lands when the app has none.** Same rule as
+  the trap above, extended to the template: `bootstrap.sh` skips it when
+  `$TARGET/README.md` already exists (it prints `kept (already in the target)`),
+  so bootstrapping into a repo with its own product README never clobbers it.
+  The sections that README must carry: `SPEC-readme.md`.
 - **Generator config does not reach the DDL.** `generators: [binary_id: true]`
   only applies to what `mix phx.gen.*` produces: a migration written by hand
   with `create table(:users)` still emits `id bigint`, and the
