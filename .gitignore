@@ -1,0 +1,19 @@
+# Riel local state — never committed
+.riel/
+
+# Elixir / Phoenix (el esqueleto se materializa en apps derivadas)
+_build/
+deps/
+*.tar
+erl_crash.dump
+
+# Assets generados
+/priv/static/assets/
+/priv/static/cache_manifest.json
+
+# Entorno
+.env
+.env.*
+
+# OS / editor
+.DS_Store
