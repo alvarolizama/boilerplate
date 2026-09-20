@@ -5,7 +5,7 @@
 #   bash skeleton/bootstrap.sh /path/to/<app> [--app <name>]
 #
 # What it does:
-#   1. `mix phx.new` into a scratch dir (--app <name> --binary-id)
+#   1. `mix phx.new` into a scratch dir (--app <name> --binary-id --no-install)
 #   2. rsync of the scaffold into the target (keeps the repo's README.md and .gitignore)
 #   3. copies `skeleton/overlay/**` replacing {{app}} / {{App}} / {{APP}}
 #   4. merges the family entries into .gitignore
@@ -86,8 +86,12 @@ TARGET="$(cd "$TARGET" && pwd)"
 SCRATCH="$(mktemp -d)"
 trap 'rm -rf "$SCRATCH"' EXIT
 
-echo "[1/6] scaffold: mix phx.new $APP (binary_id)"
-mix phx.new "$SCRATCH/$APP" --app "$APP" --binary-id --no-version-check < /dev/null > /dev/null
+echo "[1/6] scaffold: mix phx.new $APP (binary_id, no install)"
+# --no-install is explicit on purpose: phx.new PROMPTS to fetch deps and
+# install assets, and a non-interactive run that answers "yes" (or a changed
+# default) would leave deps/ and assets/node_modules/ in the scratch dir for
+# the rsync below to copy into the target. The scaffold must bring code only.
+mix phx.new "$SCRATCH/$APP" --app "$APP" --binary-id --no-version-check --no-install < /dev/null > /dev/null
 
 echo "[2/6] copying the scaffold into $TARGET (the repo's README.md and .gitignore are kept)"
 rsync -a --exclude .git --exclude README.md --exclude .gitignore "$SCRATCH/$APP/" "$TARGET/"
