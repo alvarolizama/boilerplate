@@ -31,7 +31,11 @@ relativos a `~/Workspace/Repos/alvarolizama/`, y se verifican mecánicamente:
 
 ```bash
 python3 scripts/check-spec-refs.py     # 0 referencias rotas
+python3 scripts/check-spec-refs.py --show   # cada cita con su línea, para ver drift
 ```
+
+Existir no es apuntar bien: `--show` imprime la línea citada, así un archivo que
+creció y dejó una cita apuntando a otra cosa se ve a simple vista.
 
 ## La regla: TokenGate es la referencia, no la plantilla
 

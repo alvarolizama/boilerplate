@@ -71,12 +71,30 @@ def line_count(path: str) -> int:
         return sum(1 for _ in fh)
 
 
+def line_text(path: str, number: int) -> str:
+    """Contenido de la línea citada — para que el drift semántico sea visible.
+
+    Existir no es apuntar bien: `path:123` puede resolver y estar citando otra
+    cosa (le pasó a `dran/.env.example` cuando el archivo creció dos líneas).
+    """
+    with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+        for index, line in enumerate(fh, start=1):
+            if index == number:
+                return line.strip()
+    return ""
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", default=".")
     parser.add_argument(
         "--family",
         default=os.path.expanduser("~/Workspace/Repos/alvarolizama"),
+    )
+    parser.add_argument(
+        "--show",
+        action="store_true",
+        help="imprime cada referencia con la línea citada (para ver drift semántico)",
     )
     args = parser.parse_args()
 
@@ -113,6 +131,11 @@ def main() -> int:
                 broken.append((doc, ref, f"el archivo tiene {total} líneas"))
             elif last and int(last) < first:
                 broken.append((doc, ref, "rango invertido"))
+            elif args.show:
+                preview = line_text(target, first)
+                if len(preview) > 72:
+                    preview = preview[:69] + "..."
+                print(f"ok    {ref:58} {preview}")
 
     for doc, ref, why in broken:
         print(f"ROTA  {doc}: {ref} — {why}")
