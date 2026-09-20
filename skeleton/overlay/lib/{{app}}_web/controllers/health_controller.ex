@@ -1,23 +1,23 @@
 defmodule {{App}}Web.HealthController do
   @moduledoc """
-  Liveness probe del contenedor y del proxy.
+  Liveness probe for the container and the proxy.
 
-  Responde `200` en cuanto el endpoint está escuchando y **no toca nada más**:
-  ni sesión, ni cookie, ni base de datos. Eso es deliberado — el probe corre
-  mientras la app se está calentando, que es justo cuando el pool está más
-  ocupado (el boot siembra catálogo, particiones, lo que sea), así que un probe
-  que consulte la base puede tumbar por timeout un contenedor sano.
+  It answers `200` as soon as the endpoint is listening and **touches nothing
+  else**: no session, no cookie, no database. That is deliberate — the probe
+  runs while the app is warming up, which is exactly when the pool is busiest
+  (the boot seeds a catalog, partitions, whatever), so a probe that queries the
+  database can time a healthy container out.
 
-  Apuntá el healthcheck a `/health`, NUNCA a `/`: `/` redirige a `/login` (302)
-  y un proxy configurado para esperar 200 lo lee como "caído" y devuelve 502 con
-  un contenedor que está sirviendo bien.
+  Point the healthcheck at `/health`, NEVER at `/`: `/` redirects to `/login`
+  (302) and a proxy configured to expect 200 reads it as "down" and returns 502
+  over a container that is serving fine.
   """
 
   use {{App}}Web, :controller
 
   @body ~s({"status":"ok"})
 
-  @doc "GET /health — siempre 200 mientras el endpoint esté arriba."
+  @doc "GET /health — always 200 while the endpoint is up."
   def show(conn, _params) do
     conn
     |> put_resp_content_type("application/json")

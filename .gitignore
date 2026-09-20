@@ -1,17 +1,17 @@
 # Riel local state — never committed
 .riel/
 
-# Elixir / Phoenix (el esqueleto se materializa en apps derivadas)
+# Elixir / Phoenix (the skeleton is materialized into derived apps)
 _build/
 deps/
 *.tar
 erl_crash.dump
 
-# Assets generados
+# Generated assets
 /priv/static/assets/
 /priv/static/cache_manifest.json
 
-# Entorno
+# Environment
 .env
 .env.*
 

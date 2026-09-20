@@ -1,76 +1,75 @@
-# SPEC-docker.md — cómo se empaqueta y se despliega una app
+# SPEC-docker.md — how an app is packaged and deployed
 
-## Alcance
+## Scope
 
-El contrato de contenedor de la familia: multi-stage, release de Mix, entrypoint
-que migra antes de servir, healthcheck honesto y puertos bien cableados.
-Referencia canónica: **`tokengate/Dockerfile`** (117 líneas) +
-`tokengate/docker/entrypoint.sh`.
+The container contract of the family: multi-stage, Mix release, an entrypoint
+that migrates before serving, an honest healthcheck and correctly wired ports.
+The canonical artifacts are the ones in this repo's `skeleton/overlay/`
+(`Dockerfile`, `docker/entrypoint.sh`, `config/*.exs`).
 
-## Reglas duras
+## Hard rules
 
-1. **`mix deps.get --only prod` antes de `mix compile`** — al revés, una
-   `mix.lock` desactualizada aborta con `lock outdated` (`tokengate/Dockerfile:42-45`).
-2. **`mix release` sin nombre** (usa el `:app` de `mix.exs`) y los overlays
-   `bin/migrate` / `bin/server` presentes (`tokengate/Dockerfile:67`).
-3. **El entrypoint migra antes de servir**; si la migración falla, el boot
-   aborta y el deploy se revierte (`tokengate/docker/entrypoint.sh:21-31`).
-4. **Non-root** (`useradd app`, `USER app`) y `HOME=/app`
-   (`tokengate/Dockerfile:86-87`, `:97-99`).
-5. **Sin secretos en `ARG`/`ENV`** — se hornean en las capas. Sólo hay **un**
-   build arg legítimo: `DISABLE_FORCE_SSL` (`tokengate/Dockerfile:34-35`).
-6. **`force_ssl` es compile-time**: se apaga con build arg, no con runtime
-   (`tokengate/config/prod.exs:14-20`). El **esqueleto sale con HTTPS por
-   default** (`DISABLE_FORCE_SSL=""`); TokenGate sale HTTP-plano (`"1"`) porque
-   vive detrás de VPN — el default de una app nueva no se hereda de ahí sin
-   decidirlo.
-7. **El healthcheck apunta a `/health`, nunca a `/`**: `/` responde 302 y un
-   proxy que espera 200 marca el contenedor como caído (`tokengate/Dockerfile:114-115`).
-8. **`PORT` (escucha) == puerto que el proxy expone**; `PHX_PORT` es sólo el de
-   las URLs generadas. `EXPOSE` no cambia el listen — por eso no se usa.
-9. **Nunca Alpine** en runtime (DNS de Erlang distribuido se rompe con musl).
+1. **`mix deps.get --only prod` before `mix compile`** — the other way around, a
+   stale `mix.lock` aborts with `lock outdated`.
+2. **`mix release` with no name** (it uses the `:app` from `mix.exs`) and the
+   `bin/migrate` / `bin/server` / `bin/setup` overlays present.
+3. **The entrypoint migrates before serving**; if the migration fails the boot
+   aborts and the deploy is rolled back.
+4. **Non-root** (`useradd app`, `USER app`) and `HOME=/app`.
+5. **No secrets in `ARG`/`ENV`** — they get baked into the layers. There is only
+   **one** legitimate build arg: `DISABLE_FORCE_SSL`.
+6. **`force_ssl` is compile-time**: it is turned off with a build arg, not at
+   runtime. The **skeleton ships with HTTPS on** (`DISABLE_FORCE_SSL=""`); an app
+   that lives behind a VPN may ship with plain HTTP (`"1"`), but that is a
+   decision per app, never an inherited default.
+7. **The healthcheck points at `/health`, never at `/`**: `/` answers 302 and a
+   proxy that expects 200 reads the container as down.
+8. **`PORT` (listen) == the port the proxy exposes**; `PHX_PORT` is only the one
+   used in generated URLs. `EXPOSE` does not change the listen — that is why it
+   is not used.
+9. **Never Alpine** at runtime (distributed Erlang DNS breaks with musl).
 
-## Etapa build
+## Build stage
 
-| Qué | Referencia |
+| What | Detail |
 |---|---|
-| Imagen base pinneada + runtime del mismo slug Debian (evita drift de glibc) | `tokengate/Dockerfile:11-12` |
-| `build-essential git curl ca-certificates` (los wrappers tailwind/esbuild bajan sus binarios; Node sólo si `assets/package.json` lo exige) | `tokengate/Dockerfile:19-21` |
-| `mix local.hex` / `local.rebar`, `MIX_ENV=prod` | `tokengate/Dockerfile:25-27` |
-| `DISABLE_FORCE_SSL` como `ARG` **y** `ENV` (Coolify lo ve en la UI) | `tokengate/Dockerfile:34-35` |
-| Sólo `mix.exs`/`mix.lock`/`config` antes de `deps.get` (cache de capa) | `tokengate/Dockerfile:42-45` |
-| Guard de OOM para rebar3 en contenedores chicos: `ERL_AFLAGS="+S 1:1"` en un `deps.compile` previo | `tokengate/Dockerfile:51-52` |
-| `COPY lib priv assets rel` → `mix compile` → `mix assets.deploy` | `tokengate/Dockerfile:55-61` |
-| `mix release` | `tokengate/Dockerfile:67` |
+| Pinned base image + runtime from the same Debian slug | avoids glibc drift between builder and runner |
+| `build-essential git curl ca-certificates` | the tailwind/esbuild wrappers download their own binaries; Node only if `assets/package.json` requires it |
+| `mix local.hex` / `local.rebar`, `MIX_ENV=prod` | |
+| `DISABLE_FORCE_SSL` as `ARG` **and** `ENV` | so the deploy platform shows it in its UI |
+| Only `mix.exs`/`mix.lock`/`config` before `deps.get` | keeps the dependency layer cached |
+| OOM guard for small build containers | `ERL_AFLAGS="+S 1:1"` in a previous `deps.compile` |
+| `COPY lib priv assets rel` → `mix compile` → `mix assets.deploy` | colocated assets are generated while compiling, so this order is mandatory |
+| `mix release` | produces the release with its `rel/overlays` bins |
 
-## Etapa runtime
+## Runtime stage
 
-| Qué | Referencia |
+| What | Detail |
 |---|---|
-| `libstdc++6 openssl libncurses6 locales ca-certificates curl` (curl es para el healthcheck del proxy) | `tokengate/Dockerfile:75-77` |
-| Locale UTF-8 (`LANG`/`LC_ALL`) | `tokengate/Dockerfile:80-81` |
-| `COPY --from=build --chown=app:app /app/_build/prod/rel/<app> ./` | `tokengate/Dockerfile:87` |
-| `COPY docker/entrypoint.sh` + `chmod +x` | `tokengate/Dockerfile:94-95` |
-| `ENV HOME=/app MIX_ENV=prod PHX_SERVER=true PORT=4000` | `tokengate/Dockerfile:99` |
-| `HEALTHCHECK … curl -fsS http://127.0.0.1:${PORT}/health` (start-period 60s, 5 retries) | `tokengate/Dockerfile:114-115` |
-| `ENTRYPOINT ["/app/entrypoint.sh"]` | `tokengate/Dockerfile:117` |
+| `libstdc++6 openssl libncurses6 locales ca-certificates curl` | `curl` is for the proxy's healthcheck — the slim image does not ship it |
+| UTF-8 locale (`LANG`/`LC_ALL`) | Elixir expects it at runtime |
+| `COPY --from=build --chown=app:app /app/_build/prod/rel/<app> ./` | the release only |
+| `COPY docker/entrypoint.sh` + `chmod +x` | |
+| `ENV HOME=/app MIX_ENV=prod PHX_SERVER=true PORT=4000` | |
+| `HEALTHCHECK … curl -fsS http://127.0.0.1:${PORT}/health` | start-period 60s, 5 retries |
+| `ENTRYPOINT ["/app/entrypoint.sh"]` | |
 
-### El endpoint `/health`
+### The `/health` endpoint
 
-Público, sin auth, y **sin tocar la base**: responde 200 en cuanto el listener
-está arriba (`tokengate/lib/tokengate_web/controllers/health_controller.ex:1-27`).
-Es deliberado: el probe corre mientras el boot siembra catálogo y particiones, y
-un probe que consulte la base puede tumbar un contenedor sano.
+Public, unauthenticated, and **not touching the database**: it answers 200 as
+soon as the listener is up. That is deliberate — the probe runs while the boot
+seeds catalogs and partitions, and a probe that queries the database can time a
+healthy container out.
 
-Dran todavía tiene un `/health` que consulta la base
-(`dran/lib/dran_web/controllers/health_controller.ex:6`, `SELECT 1`) y devuelve
-503 si no contesta: **antes** de ponerle el `HEALTHCHECK` canónico hay que
-volverlo DB-free, o el contenedor se reporta caído durante el arranque. Si una
-app necesita un readiness con base, va en **otra** ruta.
+**Rule for an app that already has a DB-touching `/health`** (`SELECT 1`, 503 on
+failure): make it DB-free **before** giving it the canonical `HEALTHCHECK`, or
+the container reports itself down during startup. If an app needs a DB-backed
+readiness, it goes on **another** route (`/ready`), and that is the one the proxy
+watches.
 
 ## Entrypoint
 
-Canónico (`tokengate/docker/entrypoint.sh:21-31`):
+Canonical shape:
 
 ```sh
 set -e
@@ -78,85 +77,82 @@ if [ "$SKIP_MIGRATIONS" = "1" ]; then echo "skipping"; else bin/<app> eval "<App
 exec bin/<app> start
 ```
 
-- `Release.setup/0` es idempotente: crear base → migrar → seed
-  (`tokengate/lib/tokengate/release.ex:33`, `:42`, `:54`, `:77`).
-- La primera cuenta: sin `*_ADMIN_PASSWORD` el boot no crea usuario y la app
-  manda a la pantalla de primera ejecución — la ventana en que el primero que
-  llegue se apropia de la instancia. Se cierra con la variable o desplegando
-  detrás de la frontera de red.
-- Variantes de dominio (no del esqueleto): Dran añade `DRAN_RESET=1`, destructivo
-  y activo en **cada** arranque mientras esté puesto
-  (`dran/docker/entrypoint.sh:29-37`).
+- `Release.setup/0` is idempotent: create the database → migrate → seed. It is
+  safe on every deploy.
+- The first account: without `*_ADMIN_PASSWORD` the boot creates no user and the
+  app sends whoever arrives first to the first-run screen — the window in which
+  the first visitor takes over the instance. Close it with that variable or by
+  deploying behind a network boundary.
+- Domain variants (not the skeleton): a destructive reset flag that drops the
+  schema on **every** boot while it is set.
 
 ## `.dockerignore`
 
-Canónico: `_build`, `deps`, `node_modules`, assets generados, `.git`, `.env*`,
-test/docs/tmp, basura de editor.
+Canonical: `_build`, `deps`, `node_modules`, generated assets, `.git`, `.env*`,
+test/docs/tmp, editor junk.
 
-Regla dura que costó un audit: **cualquier directorio de subidas va ignorado**.
-Dran no ignora `priv/static/uploads`, así que `COPY priv priv` hornea las subidas
-locales (93 archivos / 72 MB en el working tree al momento del audit). Estar en
-`.gitignore` no alcanza — el contexto de build es otra cosa.
+A hard rule that cost an audit: **any upload directory must be ignored**. Being
+in `.gitignore` is not enough — the build context is a different thing, and
+`COPY priv priv` bakes local uploads into the image (one audit found 93 files /
+72 MB of uploads in the build context).
 
-## Puertos
+## Ports
 
-| Variable | Qué es | Regla |
+| Variable | What it is | Rule |
 |---|---|---|
-| `PORT` | puerto real de escucha (runtime) | debe coincidir con **Ports Exposes** del recurso en Coolify |
-| `PHX_PORT` | puerto de las URLs generadas | el externo (443 con TLS, 4000/5000 tras VPN) |
-| `EXPOSE` | metadata de la imagen | **no** cambia el listen: por eso los Dockerfiles de la familia no lo llevan |
+| `PORT` | the real listen port (runtime) | must match the deploy platform's **Ports Exposes** |
+| `PHX_PORT` | port of generated URLs | the external one (443 with TLS, 4000/5000 behind a VPN) |
+| `EXPOSE` | image metadata | does **not** change the listen: that is why the family's Dockerfiles do not carry it |
 
-## Verificación antes de pushear
+## Verification before pushing
 
 ```bash
-# 1. el release existe y trae sus bins
+# 1. the release exists and brings its bins
 rm -rf _build/prod && MIX_ENV=prod mix deps.get --only prod
-MIX_ENV=prod mix compile --warnings-as-errors   # los colocalados se generan acá
+MIX_ENV=prod mix compile --warnings-as-errors   # colocated assets are generated here
 MIX_ENV=prod mix assets.deploy
 MIX_ENV=prod mix release
 ls _build/prod/rel/<app>/bin/          # <app>, migrate, server, setup
 
-# 2. arranca con config de mentira (falla si runtime.exs está roto)
+# 2. it boots with fake config (fails if runtime.exs is broken)
 DATABASE_URL=ecto://nope:nope@127.0.0.1:1/nope SECRET_KEY_BASE=test \
   PHX_HOST=localhost SESSION_SIGNING_SALT=a SESSION_ENCRYPTION_SALT=b \
   _build/prod/rel/<app>/bin/<app> eval "IO.puts(:ok)"     # -> :ok
 
-# 3. la imagen se construye y el healthcheck responde
+# 3. the image builds and the healthcheck answers
 docker build -t <app> . && docker run --rm -p 4000:4000 --env-file .env <app>
 curl -fsS http://127.0.0.1:4000/health
 ```
 
-> `mix assets.deploy` **antes** de `mix compile` en `:prod` falla con
-> `Can't resolve 'phoenix-colocated/<app>/colocated.css'`: los assets colocalados
-> se generan al compilar. El Dockerfile ya respeta ese orden.
+> `mix assets.deploy` **before** `mix compile` in `:prod` fails with
+> `Can't resolve 'phoenix-colocated/<app>/colocated.css'`: colocated assets are
+> generated while compiling. The Dockerfile already respects that order.
 >
-> Contra un Postgres local sin TLS hay que pasar `ECTO_SSL=false`: el default es
-> SSL activado y el síntoma es engañoso (`ssl not available` +
+> Against a local Postgres without TLS you must pass `ECTO_SSL=false`: the
+> default is SSL on and the symptom is misleading (`ssl not available` +
 > `failed to create db … "killed"`).
 
-## Pendientes conocidos por app
+## Known gaps — audit checklist for a live app
 
-Detectado al auditar cada app contra estos specs. **No se porta nada a una app
-sin decidirlo**: queda acá como backlog, con el ancla exacta (el gate
-`scripts/check-spec-refs.py` la verifica).
+What to look for when an app is audited against these specs. **Nothing is
+ported into an app without deciding it**: this is the backlog, and the app is
+updated when it is decided.
 
-### Dran
+| Symptom | Why it matters |
+|---|---|
+| `/health` queries the database and returns 503 | make it DB-free **before** adding the canonical `HEALTHCHECK` |
+| The image has no `HEALTHCHECK` | the runtime already installs `curl` for the proxy's check |
+| `deps.compile` without the OOM guard | build containers of 512 MB–1 GB die with `exit 255` |
+| `.dockerignore` missing the uploads directory | uploads get baked by `COPY priv priv` (one audit: 93 files / 72 MB) |
+| `DISABLE_FORCE_SSL` left at `"1"` | HTTPS is a per-app deploy decision, not an inherited default |
+| Session without `renew: true` and/or equal salts | absolute cookie lifetime, forgeable sessions — see `SPEC-config.md` |
+| README with no production/container section | healthcheck, `PORT` vs Ports Exposes, first run, uploads volume |
 
-| Pendiente | Ancla | Nota |
-|---|---|---|
-| `/health` consulta la base y devuelve 503 | `dran/lib/dran_web/controllers/health_controller.ex:6` | volverlo DB-free **antes** de ponerle el `HEALTHCHECK` |
-| Imagen sin `HEALTHCHECK` | `dran/Dockerfile` | el runtime ya instala `curl` para el check del proxy |
-| `deps.compile` sin guard de OOM | `dran/Dockerfile:48` | `ERL_AFLAGS="+S 1:1"` para build containers de 512 MB–1 GB |
-| `.dockerignore` sin las subidas | `dran/.dockerignore` | 93 archivos / 72 MB horneados por `COPY priv priv` |
-| `DISABLE_FORCE_SSL` en `""` (HTTPS) | `dran/Dockerfile:36` | decisión de deploy: **no** se hereda el `"1"` de TokenGate |
-| Sesión sin `renew` y salts iguales | `dran/lib/dran_web/endpoint.ex:19-20` | ver `SPEC-config.md` §Pendiente en Dran |
-| README §Production sin guía de contenedor | `dran/README.md:261` | healthcheck, PORT vs Ports Exposes, primera ejecución, volumen de uploads |
+## Anti-patterns
 
-## Anti-patrones
-
-- Healthcheck apuntando a `/` (302 → el proxy lo lee como caído → 502).
-- Migrar en post-deploy: la migración va **antes** de mover tráfico.
-- `EXPOSE` como si fijara el puerto.
-- Compilar sin guard de schedulers en contenedores de 512 MB–1 GB (`exit 255`).
-- Cambiar la imagen runtime a Alpine.
-- Un `ARG` con una contraseña.
+- A healthcheck pointing at `/` (302 → the proxy reads it as down → 502).
+- Migrating in a post-deploy step: the migration goes **before** traffic moves.
+- `EXPOSE` as if it fixed the port.
+- Compiling without the scheduler guard in 512 MB–1 GB containers (`exit 255`).
+- Switching the runtime image to Alpine.
+- An `ARG` holding a password.

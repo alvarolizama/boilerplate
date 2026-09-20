@@ -1,74 +1,80 @@
-# SPEC-design.md — cómo se aplica el Commons
+# SPEC-design.md — how the Commons lands in code
 
-## Alcance
+## Scope
 
-`DESIGN.md` de este repo **es** el estándar: ~34 KB, secciones `## C1..C12` +
-`## Apéndice A` (valores del tema `dim`) + `## Apéndice B` (verificación). Este
-spec no repite sus reglas: dice **qué archivo implementa cada regla**, cómo se
-verifica y cómo se propaga a una app.
+`DESIGN.md` in this repo **is** the standard: ~34 KB, sections `## C1..C12`
+plus `## Appendix A` (values of the `dim` theme) and `## Appendix B`
+(verification). This spec does not repeat its rules: it says **which file
+implements each rule**, how it is verified, and how it propagates into an app.
 
-Un agente que va a tocar UI lee, en este orden: `DESIGN.md` (la sección que
-aplica), este spec (el mapa a archivos) y el código de referencia de TokenGate.
+An agent about to touch UI reads, in this order: `DESIGN.md` (the section that
+applies), this spec (the map to files), and the UI code of the reference
+implementation (frozen, read-only).
 
-## Reglas duras
+## Hard rules
 
-1. **El Commons es byte-exacto.** El `DESIGN.md` de cada app empieza con el
-   Commons copiado tal cual, y recién después `## Custom — <App>`.
-2. **Una sola versión viva.** El Commons se edita **aquí**; nunca en el repo de
-   una app. Si un app necesita algo distinto, es un cambio del Commons.
-3. **El doc refleja el código** (regla de oro): toda afirmación del Commons se
-   puede señalar en `lib/<app>_web/…` o `assets/css/app.css`.
-4. **El Custom declara excepciones, no gustos**, y cada bloque dice *por qué* no
-   es compartible. No duplica tablas del Commons (paleta de `dim`, botones por
-   contexto): se apunta a §C2.1 / Apéndice A.
-5. **Un solo tema `dim --default`**, sin `@apply` en CSS, sin `table-zebra`.
+1. **The Commons is byte-exact.** An app's `DESIGN.md` starts with the Commons
+   copied as-is, and only then comes `## Custom — <App>`.
+2. **One single live version.** The Commons is edited **here**; never inside an
+   app repo. If an app needs something different, that is a change to the
+   Commons.
+3. **The doc reflects the code** (golden rule): every assertion in the Commons
+   can be pointed at in `lib/<app>_web/…` or `assets/css/app.css`.
+4. **Custom declares exceptions, not taste**, and every block says *why* it is
+   not shareable. It does not duplicate Commons tables (`dim` palette, buttons
+   by context): it points at §C2.1 / Appendix A.
+5. **One single theme `dim --default`**, no `@apply` in CSS, no `table-zebra`.
 
-## Mapa regla → archivo (referencia: TokenGate)
+## Rule → file map
 
-| Regla | Dónde se implementa |
+The paths are app-side (the scaffold's plus the ones the Commons prescribes);
+the portable layer in `skeleton/` does not carry UI components.
+
+| Rule | Where it must exist |
 |---|---|
-| §C2 Tema y tokens | `tokengate/assets/css/app.css:19-20` (`@plugin "../vendor/daisyui" { themes: dim --default; }`) y `tokengate/lib/tokengate_web/components/layouts/root.html.heex:2` (`data-theme="dim"`) |
-| §C2 Iconos | `tokengate/assets/css/app.css:14` (`@plugin "../vendor/heroicons"`) |
-| §C2.1 Marca | `tokengate/lib/tokengate_web/components/layouts/root.html.heex:7` (`<.live_title>`), rutas estáticas en `tokengate/lib/tokengate_web.ex:20` (`static_paths`) |
-| §C4 Primitivas | `tokengate/lib/tokengate_web/components/core_components.ex:56` (`flash`), `:102` (`button`), `:192` (`input`) |
-| §C6 Tablas | `tokengate/lib/tokengate_web/components/core_components.ex:402` (`table`) |
-| §C7.1 Modal simple | `tokengate/lib/tokengate_web/components/core_components.ex:745` (`modal`): overlay + card, cierre por ✕, Escape (`phx-window-keydown`) y click-away — **LiveView puro, sin `<dialog>`**, sin estado interno |
-| §C12 Shell | `tokengate/lib/tokengate_web/components/layouts.ex:47` (`app/1`), `:131` (raíz `drawer lg:drawer-open`), `:238` (`drawer-side`), `:417` y `:475` (`user_footer`) |
-| §C12.5 Reglas duras del shell | Los comentarios que explican la regla viven con el código: `tokengate/lib/tokengate_web/components/layouts.ex:120-135` |
+| §C2 Theme and tokens | `assets/css/app.css`: `@plugin "../vendor/daisyui" { themes: dim --default; }` — and `data-theme="dim"` on `<html>` in `lib/<app>_web/components/layouts/root.html.heex` |
+| §C2 Icons | `assets/css/app.css`: `@plugin "../vendor/heroicons"` |
+| §C2.1 Brand | `<.live_title>` in `root.html.heex`; static routes in `lib/<app>_web.ex` (`static_paths`, `favicon.svg` included) |
+| §C4 Primitives | `lib/<app>_web/components/core_components.ex`: `flash`, `button`, `input` (styled per the Commons, not the scaffold's defaults) |
+| §C6 Tables | `core_components.ex`: `table` |
+| §C7.1 Simple modal | `core_components.ex`: `modal` — overlay + card, close by ✕, Escape (`phx-window-keydown`) and click-away — **pure LiveView, no `<dialog>`**, no internal state |
+| §C12 Shell | `lib/<app>_web/components/layouts.ex`: `app/1`, root `drawer lg:drawer-open`, `drawer-side`, `user_footer` |
+| §C12.5 Shell hard rules | the comments that explain the rule live next to the code (`layouts.ex`, in `app/1`) |
 
-Para los combinados de §C8 (buscadores y selects) la mecánica LiveView se
-trabaja con el skill `liveview-ui-wiring`; el Commons fija la matriz de control y
-las reglas duras (`DESIGN.md` §C8, §Reglas duras de los combobox).
+For the §C8 combinations (search pickers and selects) the LiveView mechanics
+come from the `liveview-ui-wiring` skill; the Commons fixes the control matrix
+and the hard rules (`DESIGN.md` §C8, §Combobox hard rules).
 
-## Verificación
+## Verification
 
-El Apéndice B de `DESIGN.md` (`DESIGN.md:677-694`) trae los greps; adaptá los
-caminos a tu repo. Los tres que más rompen:
+Appendix B of `DESIGN.md` carries the greps; adapt the paths to your repo. The
+three that break most often:
 
 ```bash
-grep -n 'data-theme' lib/<app>_web/components/layouts/root.html.heex   # el tema declarado (§C2)
-grep -n 'themes:' assets/css/app.css                                   # un solo tema --default (§C2)
+grep -n 'data-theme' lib/<app>_web/components/layouts/root.html.heex   # the declared theme (§C2)
+grep -n 'themes:' assets/css/app.css                                   # a single --default theme (§C2)
 grep -rn 'table-zebra\|@apply' lib/ assets/css/                        # 0 (§C2, §C6)
 ```
 
-## Propagación a una app
+## Propagation into an app
 
-1. Partí el `DESIGN.md` de referencia en el heading `## Custom —` (el Commons
-   llega hasta ahí) y pegá el bloque de arriba en el `DESIGN.md` de la app.
-2. Corregí las frases que nombran apps **dentro** del Commons (paths de
-   `root.html.heex`, qué tema corre cada app): se corrigen, no se anotan.
-3. Escribí `## Custom — <App>` con lo exclusivo (shell propio, rol de los
-   tokens, marca, pantallas que no existen en otra app).
-4. Verificá que el Commons quedó idéntico: el `DESIGN.md` de la app debe
-   empezar con el Commons tal cual.
-5. Commits atómicos en español, separando UI de docs.
+1. Split the reference `DESIGN.md` at the `## Custom —` heading (the Commons
+   runs up to there) and paste the block above into the app's `DESIGN.md`.
+2. Fix the sentences inside the Commons that name an app (paths in
+   `root.html.heex`, which theme each app runs): they are corrected, not
+   annotated.
+3. Write `## Custom — <App>` with what is exclusive (its own shell, the role of
+   its tokens, its brand, screens no other app has).
+4. Verify the Commons came out identical: the app's `DESIGN.md` must start with
+   the Commons as-is.
+5. Atomic commits, separating UI from docs.
 
-## Anti-patrones
+## Anti-patterns
 
-- **Custom que contradice el Commons** (p. ej. prescribir un topbar cuando §C12
-  exige sidebar + gaveta). Manda el Commons.
-- **Duplicar la tabla de `dim`** en el Custom: crea dos versiones vivas.
-- **Citar §Custom desde el Commons**: los números del Commons no cambian al
-  copiarlo; las referencias son §C12, §C12.3, §S4…
-- **Editar el Commons en el repo de la app**: el cambio se pierde en la próxima
-  propagación.
+- **A Custom that contradicts the Commons** (e.g. prescribing a topbar when
+  §C12 requires sidebar + drawer). The Commons wins.
+- **Duplicating the `dim` table** in Custom: that creates two live versions.
+- **Citing §Custom from the Commons**: the Commons' numbers do not change when
+  it is copied; the references are §C12, §C12.3, §S4…
+- **Editing the Commons inside an app repo**: the change is lost at the next
+  propagation.

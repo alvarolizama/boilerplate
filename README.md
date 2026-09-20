@@ -1,159 +1,171 @@
 # boilerplate
 
-El estándar de la familia de apps (Dran, TokenGate, Gorim, Umbral, Stiva,
-Skema), en dos piezas:
+The app-family standard, in two pieces:
 
-- **`DESIGN.md`** — el **Commons**: el estándar de UI completo (tema y tokens,
-  layout y responsive, elementos y botones por contexto, cards, tablas, modales,
-  buscadores, gráficas, estados, convenciones y shell). Secciones `## C1..C12` +
-  Apéndices A/B.
-- **Los specs + `skeleton/`** — la capa portátil de una app Phoenix: env vars,
-  Dockerfile, entrypoint, healthcheck, aliases de `mix` y el esqueleto listo
-  para materializar.
+- **`DESIGN.md`** — the **Commons**: the complete UI standard (theme and tokens,
+  layout and responsive, elements and buttons by context, cards, tables, modals,
+  search pickers, charts, states, conventions and shell). Sections `## C1..C12`
+  plus Appendices A/B.
+- **The specs + `skeleton/`** — the portable layer of a Phoenix app: env vars,
+  Dockerfile, entrypoint, healthcheck, `mix` aliases, and the skeleton ready to
+  be materialized.
 
-Este repo es **spec-first**: se leen los documentos y recién después se toca
-código. Cualquier agente que llegue a una app de la familia empieza por acá.
+This repo is **spec-first**: the documents are read first, and only then does
+code get touched. Any agent landing on an app of the family starts here.
 
-## Orden de lectura
+## Reading order
 
-| # | Archivo | Qué resuelve |
+| # | File | What it settles |
 |---|---|---|
-| 1 | `README.md` (este) | qué es el repo, la regla de TokenGate, el mapa |
-| 2 | `SPEC-design.md` | cómo se aplica el Commons al código y cómo se verifica |
-| 3 | `SPEC-config.md` | env vars, sesión/cookies, settings en base de datos |
-| 4 | `SPEC-docker.md` | Dockerfile, entrypoint, healthcheck, puertos |
-| 5 | `SPEC-auth.md` | cómo entra la gente: usuario/contraseña, Google, Umbral (opcionales) + perfiles |
-| 6 | `SPEC-identity.md` | el detalle del modo SSO con Umbral (opcional) |
-| 7 | `VERSIONS.md` | versiones pinneadas (toolchain, imágenes, deps) |
-| 8 | `BOOTSTRAP.md` | cómo nace una app, paso a paso |
-| 9 | `skeleton/` | la capa portátil ya materializada, con placeholders |
+| 1 | `README.md` (this) | what the repo is, the rule, the map |
+| 2 | `SPEC-design.md` | how the Commons lands in code and how it is verified |
+| 3 | `SPEC-config.md` | env vars, session/cookies, DB-backed settings |
+| 4 | `SPEC-docker.md` | Dockerfile, entrypoint, healthcheck, ports |
+| 5 | `SPEC-auth.md` | how people get in: password, Google, SSO — all optional — plus profiles |
+| 6 | `SPEC-identity.md` | the SSO mode with the family IdP (Umbral), in detail |
+| 7 | `VERSIONS.md` | pinned versions (toolchain, images, deps) |
+| 8 | `BOOTSTRAP.md` | how an app is born, step by step |
+| 9 | `skeleton/` | the portable layer already materialized, with placeholders |
 
-Los specs citan `archivo:línea` de la implementación de referencia, con caminos
-relativos a `~/Workspace/Repos/alvarolizama/`, y se verifican mecánicamente:
+Every spec is **self-contained**: the contract and the snippets that matter are
+quoted where they belong, so nothing here depends on reading a file outside this
+repo.
 
-```bash
-python3 scripts/check-spec-refs.py     # 0 referencias rotas
-python3 scripts/check-spec-refs.py --show   # cada cita con su línea, para ver drift
-```
+## The rule: this repo is the source, a running app is never the template
 
-Existir no es apuntar bien: `--show` imprime la línea citada, así un archivo que
-creció y dejó una cita apuntando a otra cosa se ve a simple vista.
+**This repo is the single source of truth for the standard.** Its first version
+was distilled from a production app of the family; from then on that app stays
+**frozen as a read-only reference** and is never modified to serve as a
+template. When the standard changes, it changes **here** and is ported outward.
 
-## La regla: TokenGate es la referencia, no la plantilla
+The reason is concrete: a running app drags domain that a skeleton must not
+inherit. Copying it wholesale leaves a new app that **does not boot** (a
+domain-required variable is a `raise` in its `runtime.exs`) and that ships
+partitioned tables it does not need.
 
-**TokenGate es la versión canónica y está congelado como referencia read-only.**
-No se modifica para servir de plantilla: cuando el estándar cambia, se cambia
-**acá** y se porta a las apps.
-
-La razón es concreta: TokenGate arrastra dominio que un esqueleto no debe
-heredar. Copiarlo entero deja una app nueva que **no arranca** (`WEBHOOK_SECRET`
-es `raise` en su `runtime.exs`) y con tablas particionadas que no necesita.
-
-| Capa | Qué contiene | A dónde va |
+| Layer | What it holds | Where it goes |
 |---|---|---|
-| **Portátil** | Dockerfile sin dominio, `docker/entrypoint.sh`, `config/*.exs`, bloque de sesión del endpoint, `release.ex`, `/health` DB-free, `.dockerignore`, `.env.example`, alias de `mix` | `skeleton/` → app nueva |
-| **Dominio TokenGate** | proxy + gzip, `WEBHOOK_SECRET`, `request_logs` particionada, Telegram, budgets, catálogo de providers, crons Oban | se queda en TokenGate |
-| **Dominio Dran** | pgvector, inference (`DRAN_INFERENCE_*`), workers, `UPLOADS_DIR` | se queda en Dran |
+| **Portable** | domain-free Dockerfile, `docker/entrypoint.sh`, `config/*.exs`, the endpoint session block, `release.ex`, DB-free `/health`, `.dockerignore`, `.env.example`, `mix` aliases | `skeleton/` → a new app |
+| **App domain** | proxy + gzip, webhooks, partitioned tables, notifications, budgets, provider catalog, Oban crons, vector search/inference, upload pipeline | stays in that app |
 
-## Dos ciclos distintos — no confundirlos
+## Two different cycles — do not confuse them
 
-| Ciclo | Qué cambia | Cómo se propaga |
+| Cycle | What changes | How it propagates |
 |---|---|---|
-| **Commons** (`DESIGN.md`) | el estándar de UI, que evoluciona seguido | se edita aquí y se copia **byte-exacto** al `DESIGN.md` de cada app (más `## Custom — <App>`); nunca se edita en el repo de la app |
-| **Esqueleto** (`skeleton/`) | la capa portátil, que cambia poco | se usa **al nacer** una app (`BOOTSTRAP.md`); las apps vivas no se re-sincronizan solas |
+| **Commons** (`DESIGN.md`) | the UI standard, which evolves often | edited here and copied **byte-exact** into each app's `DESIGN.md` (plus `## Custom — <App>`); never edited inside an app repo |
+| **Skeleton** (`skeleton/`) | the portable layer, which changes rarely | used **when an app is born** (`BOOTSTRAP.md`); live apps are not re-synced on their own |
 
-**Nada se porta a una app por iniciativa propia.** Lo que falta en cada app vive
-como backlog en `SPEC-docker.md` §Pendientes conocidos por app, con el ancla
-exacta, y se porta cuando se decide — el estándar primero, la app después.
+**Nothing is ported into an app on its own initiative.** What an app is missing
+lives as backlog in `SPEC-docker.md` §Known gaps, with the exact anchor, and is
+ported when it is decided — the standard first, the app second.
 
-## Mapa del repo
+## Repo map
 
 ```text
 boilerplate/
-├── DESIGN.md          # el Commons (estándar de UI) — fuente
-├── README.md          # este índice
-├── SPEC-design.md     # Commons → archivos → verificación → propagación
-├── SPEC-config.md     # env vars, sesión, settings en BD
-├── SPEC-docker.md     # contenedor, entrypoint, healthcheck, puertos
-├── SPEC-auth.md       # modos de entrada (password, Google, Umbral) + perfiles
-├── SPEC-identity.md   # el modo SSO con Umbral, en detalle
-├── VERSIONS.md        # versiones pinneadas
-├── BOOTSTRAP.md       # nacer una app (procedimiento mecánico)
-├── skeleton/          # capa portátil con placeholders <app>/<App>/<APP>
-└── scripts/           # check-spec-refs.py — el gate de los specs
+├── DESIGN.md          # the Commons (UI standard) — source
+├── README.md          # this index
+├── SPEC-design.md     # Commons → files → verification → propagation
+├── SPEC-config.md     # env vars, session, DB-backed settings
+├── SPEC-docker.md     # container, entrypoint, healthcheck, ports
+├── SPEC-auth.md       # sign-in modes (password, Google, SSO) + profiles
+├── SPEC-identity.md   # the SSO mode with Umbral, in detail
+├── VERSIONS.md        # pinned versions
+├── BOOTSTRAP.md       # birthing an app (mechanical procedure)
+└── skeleton/          # portable layer with <app>/<App>/<APP> placeholders
 ```
 
-## Arrancar una app (resumen)
+## Starting an app (summary)
 
 ```bash
-bash skeleton/bootstrap.sh ~/Workspace/Repos/alvarolizama/<app>
+bash skeleton/bootstrap.sh /path/to/<app>
 ```
 
-`bootstrap.sh` materializa el esqueleto, reemplaza los placeholders y deja la
-app compilando. El detalle, las trampas y el orden están en `BOOTSTRAP.md`.
+`bootstrap.sh` materializes the skeleton, replaces the placeholders and leaves
+the app compiling. The detail, the traps and the exact order are in
+`BOOTSTRAP.md`.
 
-## Cómo usar `DESIGN.md`
+## How to use `DESIGN.md`
 
-### Adoptarlo en una app
+### Adopting it in an app
 
-1. **Copiá `DESIGN.md` tal cual** a la raíz del repo de tu app.
-2. **Añadí al final** tu sección con lo exclusivo de esa app:
+1. **Copy `DESIGN.md` as-is** into the root of your app's repo.
+2. **Append at the end** your own section with what is exclusive to that app:
 
    ```md
    ## Custom — <App>
    ```
 
-   Cada bloque de tu Custom dice **por qué** no es compartible (marca la
-   diferencia real, no el gusto).
-3. **Aplicá lo que dice el doc** en el código: el tema en `app.css` (§C2), las
-   primitivas en `CoreComponents` (§C4), el shell (§C12), etc. — el mapa a
-   archivos está en `SPEC-design.md`.
+   Every block of your Custom says **why** it is not shareable (mark the real
+   difference, not the taste).
+3. **Apply what the doc says** in code: the theme in `app.css` (§C2), the
+   primitives in `CoreComponents` (§C4), the shell (§C12), etc. — the map to
+   files is in `SPEC-design.md`.
 
-### Mantenerlo cuando cambia el Commons
+### Keeping it current when the Commons changes
 
-- El Commons se edita **aquí** (un PR en este repo), nunca en el repo de una
-  app.
-- Al fusionar, el cambio se propaga **copiando el bloque** a los `DESIGN.md`
-  de las apps: no puede haber dos versiones vivas del mismo Commons.
-- Si cambias el Commons, cámbialo en **todos** los `DESIGN.md`.
+- The Commons is edited **here** (a PR in this repo), never inside an app repo.
+- On merge, the change propagates by **copying the block** into the apps'
+  `DESIGN.md`: there cannot be two live versions of the same Commons.
+- If you change the Commons, change it in **every** `DESIGN.md`.
 
-### Criterio de reparto
+### Split criterion
 
-Todo lo que se pueda compartir va al **Commons**; **Custom** es la excepción.
-Si dudas, va a Commons — así la próxima app lo hereda gratis.
+Everything that can be shared goes to the **Commons**; **Custom** is the
+exception. If in doubt, it goes to the Commons — that way the next app inherits
+it for free.
 
-### Regla de oro
+### Golden rule
 
-El doc **refleja el código**: todo lo que afirma se puede señalar en
-`lib/<app>_web/…` o `assets/css/app.css`. Si el código cambia, el doc cambia
-con él.
+The doc **reflects the code**: everything it asserts can be pointed at in
+`lib/<app>_web/…` or `assets/css/app.css`. If the code changes, the doc changes
+with it.
 
-## El tema
+## The theme
 
-Una sola línea en `app.css` + `data-theme` en `root.html.heex`. Hoy la familia
-corre daisyUI **`dim --default`** — los valores de referencia están en el
-Apéndice A del doc. Cambiar de tema no toca las vistas.
+One line in `app.css` plus `data-theme` in `root.html.heex`. The family runs
+daisyUI **`dim --default`** — the reference values are in Appendix A of the doc.
+Changing the theme does not touch the views.
 
-## Verificar una implementación
+## Verifying an implementation
 
-El **Apéndice B** de `DESIGN.md` trae los greps de verificación (adaptá los
-caminos a tu repo: por ejemplo `grep -rn 'table-zebra' lib/` debe dar 0). En
-apps Phoenix, el gate es **`mix precommit`**.
+**Appendix B** of `DESIGN.md` carries the verification greps (adapt the paths to
+your repo: for example `grep -rn 'table-zebra' lib/` must return 0). In Phoenix
+apps, the gate is **`mix precommit`**.
 
-## Índice del estándar
+## Standard index
 
-| Sección | Qué cubre |
+| Section | What it covers |
 |---|---|
-| C1–C2 | Principios · tema y tokens · marca (logo y favicon) |
-| C3 | Layout base y responsive (mobile-first) |
-| C4 | Elementos básicos · **botones por contexto** |
-| C5–C7 | Cards · tablas · modales (simple y de dos columnas) |
-| C8 | Buscadores y selects: matriz de control + reglas duras |
-| C9–C11 | Gráficas · estados · convenciones |
-| C12 | Shell: sidebar, navegación y menús · **reglas duras** (fila del drawer, scroll) |
-| Apéndices | A: valores del tema `dim` · B: verificación |
+| C1–C2 | Principles · theme and tokens · brand (logo and favicon) |
+| C3 | Base layout and responsive (mobile-first) |
+| C4 | Basic elements · **buttons by context** |
+| C5–C7 | Cards · tables · modals (simple and two-column) |
+| C8 | Search pickers and selects: control matrix + hard rules |
+| C9–C11 | Charts · states · conventions |
+| C12 | Shell: sidebar, navigation and menus · **hard rules** (drawer row, scroll) |
+| Appendices | A: `dim` theme values · B: verification |
 
-## Autoría
+## Working on these projects — Riel
 
-Álvaro Lizama. El Commons está destilado del estándar en producción de las apps
-de la familia; la capa portátil, de TokenGate.
+Work on the family's projects is driven with **Riel**, the agent-side protocol
+that keeps a task's state outside the model and outside the chat:
+
+- **`.riel/contract.md`** — the plan: a verb graph with pre-registered claims
+  and the gate that closes each phase.
+- **`.riel/ledger.md`** — the state: `Goal`, `Core`, `Verified` (each `✓NN`
+  with its verifier and its coverage), `Open`, `Next` — re-read at every **seam**
+  (a tool call, a file change, a context compaction, a session gap).
+- **`.riel/` is local state**: it is in `.gitignore` and is never committed.
+  One workstream = one worktree = one ledger.
+- The mechanical helper is **`rielctl`** (`resume`, `seam`, `todo`, `clean`).
+
+The skills that carry the protocol: `riel-protocol` (the entry point),
+`riel-contract` (contracts), `riel-ledger` (ledgers), `riel-briefs` /
+`riel-delegate` (delegation) and `riel-cli` (the CLI). Tasks are classified
+**fast / full / loop**; only loop-mode tasks carry a ledger.
+
+## Authorship
+
+Álvaro Lizama. The Commons is distilled from the family's production standard;
+the portable layer, from a production app of the family.

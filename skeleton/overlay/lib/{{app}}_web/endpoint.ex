@@ -1,11 +1,11 @@
 defmodule {{App}}Web.Endpoint do
   use Phoenix.Endpoint, otp_app: :{{app}}
 
-  # La sesión vive en una cookie cifrada (el cliente no puede leerla ni
-  # modificarla). Salts y vida son configurables por entorno.
-  # SESSION_COOKIE_SECURE=true fuerza el flag Secure (cookie sólo por HTTPS);
-  # sin la variable decide Plug (Secure sólo si el request es HTTPS, así un
-  # deploy HTTP sigue funcionando). Ver SPEC-config.md.
+  # The session lives in an encrypted cookie (the client cannot read or modify
+  # it). Salts and lifetime are configurable through the environment.
+  # SESSION_COOKIE_SECURE=true forces the Secure flag (cookie only over HTTPS);
+  # without the variable Plug decides (Secure only when the request is HTTPS, so
+  # an HTTP deploy keeps working). See SPEC-config.md.
   session_secure =
     case System.get_env("SESSION_COOKIE_SECURE") do
       v when v in ["true", "1"] -> [secure: true]
@@ -13,8 +13,8 @@ defmodule {{App}}Web.Endpoint do
       _ -> []
     end
 
-  # Los fallbacks de dev son DOS valores distintos y no se usan en prod:
-  # runtime.exs exige los salts del entorno cuando config_env() == :prod.
+  # The dev fallbacks are TWO different values and are not used in prod:
+  # runtime.exs requires the salts from the environment when config_env() == :prod.
   @session_options [
                      store: :cookie,
                      key: "_{{app}}_key",
@@ -23,9 +23,9 @@ defmodule {{App}}Web.Endpoint do
                        System.get_env("SESSION_ENCRYPTION_SALT", "{{app}}-dev-encryption-salt"),
                      same_site: "Lax",
                      http_only: true,
-                     # Renovación deslizante: la cookie se re-emite con max_age
-                     # fresco en cada request autenticado, así una persona activa
-                     # sigue dentro y un navegador ocioso expira.
+                     # Sliding renewal: the cookie is re-issued with a fresh
+                     # max_age on every authenticated request, so an active
+                     # person stays in and an idle browser expires.
                      renew: true,
                      max_age:
                        String.to_integer(System.get_env("SESSION_MAX_AGE_SECONDS", "31536000"))
@@ -35,8 +35,8 @@ defmodule {{App}}Web.Endpoint do
     websocket: [connect_info: [session: @session_options, peer_data: true, user_agent: true]],
     longpoll: [connect_info: [session: @session_options, peer_data: true, user_agent: true]]
 
-  # Sirve en "/" los estáticos de priv/static. Con recarga de código apagada
-  # (producción) se activa gzip para servir los estáticos ya digeridos por
+  # Serves the static files from priv/static at "/". With code reloading off
+  # (production) gzip is enabled to serve the assets already digested by
   # `phx.digest`.
   plug Plug.Static,
     at: "/",
@@ -45,7 +45,7 @@ defmodule {{App}}Web.Endpoint do
     only: {{App}}Web.static_paths(),
     raise_on_missing_only: code_reloading?
 
-  # Recarga de código (config :code_reloader).
+  # Code reloading (config :code_reloader).
   if code_reloading? do
     socket "/phoenix/live_reload/socket", Phoenix.LiveReloader.Socket
     plug Phoenix.LiveReloader
@@ -60,8 +60,8 @@ defmodule {{App}}Web.Endpoint do
   plug Plug.RequestId
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
 
-  # Topes de body explícitos: los requests por encima del tope se rechazan con
-  # 413 antes de bufferear todo.
+  # Explicit body caps: requests above the cap are rejected with 413 before
+  # everything is buffered.
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],

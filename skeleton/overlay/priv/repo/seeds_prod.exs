@@ -1,17 +1,18 @@
-# Seed de producción de {{App}} — lo evalúa {{App}}.Release.seed/0 en el boot
-# (entrypoint del contenedor → {{App}}.Release.setup/0), NO es el dataset de dev
-# (priv/repo/seeds.exs): ese crea datos con contraseñas públicas del repositorio.
+# Production seed for {{App}} — evaluated by {{App}}.Release.seed/0 at boot
+# (container entrypoint → {{App}}.Release.setup/0). It is NOT the dev dataset
+# (priv/repo/seeds.exs): that one creates data with public passwords from the
+# repository.
 #
-# Reglas:
-#   * IDEMPOTENTE: `get_by` y después `insert` (o `on_conflict`). El setup corre
-#     en CADA deploy.
-#   * OPT-IN para credenciales: si la app bootstrapea una cuenta, la crea sólo
-#     cuando la variable está puesta; sin ella el boot no crea usuarios y la
-#     primera cuenta entra por la pantalla de primera ejecución. Nunca un
-#     password de fallback que viva en el repositorio.
-#   * El archivo puede quedarse vacío: `seed/0` sólo lo evalúa si existe.
+# Rules:
+#   * IDEMPOTENT: `get_by` and then `insert` (or `on_conflict`). The setup runs
+#     on EVERY deploy.
+#   * OPT-IN for credentials: if the app bootstraps an account, it creates it
+#     only when the variable is set; without it the boot creates no users and
+#     the first account comes in through the first-run screen. Never a fallback
+#     password that lives in the repository.
+#   * The file may stay empty: `seed/0` only evaluates it if it exists.
 #
-# Patrón (descomentá y adaptá):
+# Pattern (uncomment and adapt):
 #
 #   alias {{App}}.Repo
 #   alias {{App}}.Accounts

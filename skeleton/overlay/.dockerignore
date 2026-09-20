@@ -1,18 +1,19 @@
-# Artefactos de build
+# Build artifacts
 _build/
 deps/
 assets/node_modules/
 priv/static/assets/
 priv/static/cache_manifest.json
 
-# Subidas locales — NUNCA dentro de la imagen (COPY priv priv las hornearía).
-# Es el hueco que tenía Dran: 93 archivos / 72 MB en el contexto de build.
+# Local uploads — NEVER inside the image (COPY priv priv would bake them in).
+# An audit found 93 files / 72 MB of uploads in a build context for missing
+# this line.
 priv/static/uploads/
 
-# Estado local de Riel
+# Riel local state
 .riel/
 
-# VCS / entorno / basura de editor
+# VCS / environment / editor junk
 .git/
 .gitignore
 .dockerignore
@@ -23,7 +24,7 @@ Dockerfile
 .vscode/
 .idea/
 
-# Tests, docs y tooling no entran en la imagen
+# Tests, docs and tooling do not enter the image
 test/
 docs/
 tmp/

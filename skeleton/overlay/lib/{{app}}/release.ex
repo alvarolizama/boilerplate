@@ -1,19 +1,19 @@
 defmodule {{App}}.Release do
   @moduledoc """
-  Tareas de release que invocan `bin/{{app}} eval` (desde `rel/overlays`:
-  `bin/migrate`, `bin/setup`) y el entrypoint del contenedor.
+  Release tasks invoked by `bin/{{app}} eval` (from `rel/overlays`:
+  `bin/migrate`, `bin/setup`) and by the container entrypoint.
 
-    * `migrate/0` — corre las migraciones pendientes de Ecto.
-    * `setup/0`   — primera ejecución idempotente: crear la base si falta →
-      migrar → seed. Seguro de invocar en cada deploy.
-    * `seed/0`    — evalúa `priv/repo/seeds_prod.exs` (bootstrap de la primera
-      cuenta). NUNCA apuntar a `priv/repo/seeds.exs`: ese es el dataset demo de
-      desarrollo y crea usuarios con contraseña pública en el repositorio.
+    * `migrate/0` — runs the pending Ecto migrations.
+    * `setup/0`   — idempotent first run: create the database if missing →
+      migrate → seed. Safe to invoke on every deploy.
+    * `seed/0`    — evaluates `priv/repo/seeds_prod.exs` (bootstrap of the first
+      account). NEVER point it at `priv/repo/seeds.exs`: that is the development
+      demo dataset and it creates users with public passwords in the repository.
 
-  Todo el trabajo de migración/seed/rollback va envuelto en
-  `Ecto.Migrator.with_repo/2` — durante `bin/{{app}} eval` el árbol de
-  supervisión (Repo incluido) no está arrancado. `create/0` habla directo con el
-  adapter vía `storage_up/1` y no necesita el Repo.
+  All migration/seed/rollback work is wrapped in `Ecto.Migrator.with_repo/2` —
+  during `bin/{{app}} eval` the supervision tree (Repo included) is not started.
+  `create/0` talks straight to the adapter through `storage_up/1` and does not
+  need the Repo.
   """
 
   require Logger
@@ -22,12 +22,12 @@ defmodule {{App}}.Release do
   @start_timeout 30_000
 
   @doc """
-  Setup idempotente de primera ejecución: crear la base si falta → migrar →
-  seed. Si la app no bootstrapea una cuenta en su seed, la primera entra desde
-  la pantalla de primera ejecución (ver SPEC-docker.md).
+  Idempotent first-run setup: create the database if missing → migrate → seed.
+  If the app does not bootstrap an account in its seed, the first one comes in
+  through the first-run screen (see SPEC-docker.md).
 
-  Sólo una instancia a la vez: con 2+ réplicas compitiendo en `storage_up`,
-  cambiá el entrypoint a `bin/migrate` y creá la base una vez fuera de banda.
+  Only one instance at a time: with 2+ replicas racing on `storage_up`, switch
+  the entrypoint to `bin/migrate` and create the database once, out of band.
   """
   def setup do
     load_config()
@@ -37,7 +37,7 @@ defmodule {{App}}.Release do
     :ok
   end
 
-  @doc "Crea la base si no existe (idempotente)."
+  @doc "Creates the database if it does not exist (idempotent)."
   def create do
     load_config()
 
@@ -49,7 +49,7 @@ defmodule {{App}}.Release do
     end
   end
 
-  @doc "Corre las migraciones pendientes."
+  @doc "Runs the pending migrations."
   def migrate do
     load_config()
 
@@ -64,11 +64,11 @@ defmodule {{App}}.Release do
   end
 
   @doc """
-  Evalúa `priv/repo/seeds_prod.exs`. Debe ser idempotente (get_by + insert) y no
-  crear nada con credenciales del repositorio.
+  Evaluates `priv/repo/seeds_prod.exs`. It must be idempotent (get_by + insert)
+  and must not create anything with credentials from the repository.
 
-  Si el archivo no existe, no hace nada y lo deja dicho: una app sin seed de
-  producción (sin primera cuenta que bootstrapear) tiene que poder arrancar.
+  If the file does not exist it does nothing and says so: an app without a
+  production seed (with no first account to bootstrap) has to be able to boot.
   """
   def seed do
     load_config()
@@ -90,10 +90,10 @@ defmodule {{App}}.Release do
   end
 
   @doc """
-  Path absoluto del seed que evalúa `seed/0`.
+  Absolute path of the seed that `seed/0` evaluates.
 
-  Público para que un test pueda afirmar que apunta al seed de producción y no
-  al de desarrollo — esa confusión es la que siembra datos demo en producción.
+  Public so a test can assert it points at the production seed and not at the
+  development one — that confusion is what sows demo data in production.
   """
   @spec seeds_file() :: String.t()
   def seeds_file, do: Application.app_dir(@app, "priv/repo/seeds_prod.exs")
@@ -104,9 +104,9 @@ defmodule {{App}}.Release do
         Logger.info("[release] created database for #{inspect(repo)}")
         :ok
 
-      # storage_up/1 devuelve {:error, :already_up} (átomo, ecto_sql 3.14+) o el
-      # tuple legacy de versiones anteriores: hay que matchear AMBOS o el
-      # segundo deploy crashea con un engañoso "failed to create db".
+      # storage_up/1 returns {:error, :already_up} (an atom, ecto_sql 3.14+) or
+      # the legacy tuple of earlier versions: BOTH have to be matched or the
+      # second deploy crashes with a misleading "failed to create db".
       {:error, :already_up} ->
         Logger.info("[release] database already exists for #{inspect(repo)}, skipping create")
         :ok
@@ -124,9 +124,9 @@ defmodule {{App}}.Release do
     Application.fetch_env!(@app, :ecto_repos)
   end
 
-  # Fuerza la evaluación de config/runtime.exs (el config provider) para que
-  # repo.config() resuelva DATABASE_URL y compañía. Un repo configurado afuera
-  # de with_repo/2 falla con "could not lookup Ecto repo".
+  # Forces the evaluation of config/runtime.exs (the config provider) so that
+  # repo.config() resolves DATABASE_URL and friends. A repo configured outside
+  # with_repo/2 fails with "could not lookup Ecto repo".
   defp load_config do
     Application.ensure_all_started(:ssl)
     Application.ensure_loaded(@app)

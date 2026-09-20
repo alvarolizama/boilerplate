@@ -1,66 +1,73 @@
-# VERSIONS.md — versiones pinneadas de la familia
+# VERSIONS.md — the family's pinned versions
 
-Lo que se fija al nacer una app. Se cambia **aquí** y, si aplica, se porta a las
-apps vivas.
+What gets pinned when an app is born. It changes **here**, and where it applies
+it is ported into live apps.
 
 ## Toolchain
 
-| Pieza | Versión | Dónde se fija |
+| Piece | Version | Where it is pinned |
 |---|---|---|
 | Elixir | **1.20.1-otp-29** | `.tool-versions` (asdf/mise) |
 | Erlang/OTP | **29.0.2** | `.tool-versions` |
-| `mix.exs` `elixir:` | `~> 1.15` | el rango declarado, no el pin real |
-| Imagen de build | `hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim` | `skeleton/overlay/Dockerfile` (ARG `ELIXIR_IMAGE`) |
-| Imagen de runtime | `debian:bookworm-20260713-slim` | `skeleton/overlay/Dockerfile` (ARG `DEBIAN_RUNTIME`) |
-| Node (sólo si hay JS propios) | 22.x | bloque opcional del Dockerfile |
+| `mix.exs` `elixir:` | `~> 1.15` | the declared range, not the real pin |
+| Build image | `hexpm/elixir:1.20.2-erlang-29.0.3-debian-bookworm-20260713-slim` | `skeleton/overlay/Dockerfile` (ARG `ELIXIR_IMAGE`) |
+| Runtime image | `debian:bookworm-20260713-slim` | `skeleton/overlay/Dockerfile` (ARG `DEBIAN_RUNTIME`) |
+| Node (only with its own JS) | 22.x | the optional block of the Dockerfile |
 
-> **Drift conocido**: el toolchain local está en `1.20.1 / OTP 29.0.2` y la
-> imagen en `1.20.2 / OTP 29.0.3`. Los parches son compatibles, pero el pin de la
-> imagen se elige contra la
-> [lista real de tags](https://hub.docker.com/r/hexpm/elixir/tags) y el slug
-> Debian del runtime **debe** coincidir con el del builder (glibc).
+> **Known drift**: the local toolchain sits at `1.20.1 / OTP 29.0.2` while the
+> image is `1.20.2 / OTP 29.0.3`. The patches are compatible, but the image pin
+> is chosen against the
+> [real tag list](https://hub.docker.com/r/hexpm/elixir/tags) and the runtime's
+> Debian slug **must** match the builder's (glibc).
 
-## Dependencias base (lo que toda app de la familia trae)
+## Base dependencies (what every app of the family carries)
 
-| Dep | Versión | Para qué |
+| Dep | Version | For what |
 |---|---|---|
 | `phoenix` | `~> 1.8.8` | framework |
-| `phoenix_live_view` | `~> 1.2.0` | UI reactiva |
+| `phoenix_live_view` | `~> 1.2.0` | reactive UI |
 | `phoenix_html` | `~> 4.1` | HEEx |
-| `ecto_sql` / `postgrex` / `phoenix_ecto` | `~> 3.13` / `>= 0.0.0` / `~> 4.5` | datos |
-| `bandit` | `~> 1.5` | servidor HTTP |
-| `swoosh` + `req` | `~> 1.16` / `~> 0.5` | correo y HTTP cliente (`Swoosh.ApiClient.Req`) |
-| `jason` / `gettext` | `~> 1.2` / `~> 1.0` | JSON e i18n |
-| `dns_cluster` | `~> 0.2.0` | clustering (opcional en runtime) |
-| `telemetry_metrics` / `telemetry_poller` | `~> 1.0` | métricas |
-| `bcrypt_elixir` | `~> 3.0` | hashing de contraseñas |
-| `tailwind` / `esbuild` | `~> 0.3` / `~> 0.10` | assets (bajan sus binarios) |
-| `phoenix_live_dashboard` | `~> 0.8.3` | panel de dev/prod |
-| `mix_audit` / `sobelow` | dev/test | auditoría (Dran usa `sobelow`) |
-| `heroicons` | git pin | iconos (`tag: v2.2.0` en TokenGate, `ref:` en Dran) |
+| `ecto_sql` / `postgrex` / `phoenix_ecto` | `~> 3.13` / `>= 0.0.0` / `~> 4.5` | data |
+| `bandit` | `~> 1.5` | HTTP server |
+| `swoosh` + `req` | `~> 1.16` / `~> 0.5` | mail and HTTP client (`Swoosh.ApiClient.Req`) |
+| `jason` / `gettext` | `~> 1.2` / `~> 1.0` | JSON and i18n |
+| `dns_cluster` | `~> 0.2.0` | clustering (optional at runtime) |
+| `telemetry_metrics` / `telemetry_poller` | `~> 1.0` | metrics |
+| `bcrypt_elixir` | `~> 3.0` | password hashing |
+| `tailwind` / `esbuild` | `~> 0.3` / `~> 0.10` | assets (they download their binaries) |
+| `phoenix_live_dashboard` | `~> 0.8.3` | dev/prod panel |
+| `mix_audit` / `sobelow` | dev/test | auditing (`sobelow` is opt-in per app) |
+| `heroicons` | git pin | icons (`tag:` or `ref:` — keep it consistent with the lock) |
 
-> Los deps de git se resuelven por `ref`/`tag`/`branch` — **exactamente uno** y en
-> el mismo orden de opciones que el lock, o prod aborta con `lock outdated`
-> aunque `mix.exs` y `mix.lock` "coincidan".
+> Git deps are resolved by `ref`/`tag`/`branch` — **exactly one**, and in the
+> same option order as the lock, or prod aborts with `lock outdated` even when
+> `mix.exs` and `mix.lock` "match".
 
-## Propias de cada app (no van al esqueleto)
+## App-specific (they do not go into the skeleton)
 
-| App | Deps extra | Por qué no es base |
-|---|---|---|
-| TokenGate | `oban ~> 2.19`, `finch ~> 0.19`, `tz ~> 0.28` | jobs, streaming del proxy, zonas horarias |
-| Dran | `mdex ~> 0.13.1`, `pgvector ~> 0.3`, `quantum ~> 3.5` | markdown, embeddings, crons |
+Typical extra deps, by capability — add them only if the app has that
+capability:
 
-## Base de datos
+| Capability | Deps |
+|---|---|
+| Background jobs / queues | `oban` |
+| Streaming HTTP (a proxy, SSE) | `finch` |
+| Time zones | `tz` |
+| Markdown | `mdex` |
+| Vector search / embeddings | `pgvector` |
+| Scheduled jobs (cron) | `quantum` |
 
-| Requisito | Detalle |
+## Database
+
+| Requirement | Detail |
 |---|---|
 | PostgreSQL | **14+** |
-| Extensiones | `pgvector` sólo si la app la usa (Dran); TokenGate no la necesita |
-| Particiones | sólo si la app particiona tablas: `CREATE INDEX` **no** puede ser `CONCURRENTLY` en una tabla particionada (Postgres) — migrar en ventana de mantenimiento |
-| PKs | `binary_id` (uuid) en toda la familia |
-| Timestamps | `utc_datetime_usec` — se escriben **explícitos en cada `create table`**: el `generators: [binary_id: true]` sólo aplica a lo que generan `mix phx.gen.*` |
+| Extensions | `pgvector` only if the app uses it |
+| Partitions | only if the app partitions tables: `CREATE INDEX` **cannot** be `CONCURRENTLY` on a partitioned table (Postgres) — migrate inside a maintenance window |
+| PKs | `binary_id` (uuid) across the family |
+| Timestamps | `utc_datetime_usec` — written **explicitly in every `create table`**: `generators: [binary_id: true]` only applies to what `mix phx.gen.*` generates |
 
-## Cómo se verifica una versión nueva
+## How a new version is verified
 
 ```bash
 cd <app>
@@ -70,5 +77,5 @@ mix precommit
 rm -rf _build/prod && MIX_ENV=prod mix deps.get --only prod && MIX_ENV=prod mix release
 ```
 
-Si el release falla y `mix precommit` pasa, el problema es de `:prod`
-(config provider) — ver `SPEC-docker.md` §Verificación.
+If the release fails while `mix precommit` passes, the problem is in `:prod`
+(the config provider) — see `SPEC-docker.md` §Verification before pushing.

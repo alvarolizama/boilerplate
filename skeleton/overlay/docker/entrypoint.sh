@@ -1,19 +1,19 @@
 #!/bin/sh
-# Entrypoint del contenedor de {{App}}.
+# Container entrypoint for {{App}}.
 #
-# Corre {{App}}.Release.setup/0 (crear la base si falta → migrar → seed) antes
-# de arrancar el release de Phoenix. En una base nueva crea el esquema; en los
-# deploys siguientes saltea la parte ya hecha y sólo aplica migraciones
-# pendientes. Una migración fallida aborta el boot — el deploy se revierte en
-# lugar de servir código contra un esquema viejo.
+# Runs {{App}}.Release.setup/0 (create the database if missing → migrate →
+# seed) before starting the Phoenix release. On a new database it creates the
+# schema; on later deploys it skips what is already done and applies only
+# pending migrations. A failed migration aborts the boot — the deploy is rolled
+# back instead of serving code against an old schema.
 #
 # Variables:
-#   SKIP_MIGRATIONS=1   saltea el setup (contenedores de tareas puntuales).
+#   SKIP_MIGRATIONS=1   skips the setup (one-off task containers).
 #
-# Primera ejecución: si la app no bootstrapea un dueño en el seed, la instancia
-# queda para el primero que llegue a la pantalla de primera ejecución. Cerrá esa
-# ventana con la variable de la app (p. ej. {{APP}}_ADMIN_PASSWORD en su
-# priv/repo/seeds_prod.exs) o desplegando detrás de la frontera de red.
+# First run: if the app does not bootstrap an owner in its seed, the instance
+# is left to whoever reaches the first-run screen first. Close that window with
+# the app's variable (e.g. {{APP}}_ADMIN_PASSWORD in its
+# priv/repo/seeds_prod.exs) or by deploying behind a network boundary.
 set -e
 
 if [ "$SKIP_MIGRATIONS" = "1" ]; then

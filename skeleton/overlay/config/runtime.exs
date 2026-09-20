@@ -1,16 +1,16 @@
 import Config
 
-# config/runtime.exs corre en TODOS los entornos, incluidos los releases (como
-# config provider): se ejecuta después de compilar y antes de arrancar el
-# sistema. Acá va la configuración que lee el entorno — nunca configuración de
-# compile-time (no se aplicaría).
+# config/runtime.exs runs in EVERY environment, releases included (as the
+# config provider): it executes after compiling and before starting the system.
+# Environment-driven configuration goes here — never compile-time configuration
+# (it would not apply).
 #
-# Contrato completo de variables: SPEC-config.md.
+# The complete variable contract: SPEC-config.md.
 
-# El endpoint arranca el listener aunque el release se invoque a mano
-# (`bin/{{app}} start`, Coolify, Nixpacks…). El gate evita que `mix test` y
-# `mix precommit` intenten bindear el puerto (eaddrinuse con un server de dev
-# arriba).
+# The endpoint starts the listener even when the release is invoked by hand
+# (`bin/{{app}} start`, the deploy platform, Nixpacks…). The gate stops
+# `mix test` and `mix precommit` from trying to bind the port (eaddrinuse with
+# a dev server already up).
 if config_env() == :prod or System.get_env("PHX_SERVER") do
   config :{{app}}, {{App}}Web.Endpoint, server: true
 end
@@ -28,11 +28,11 @@ if config_env() == :prod do
 
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
-  # SSL activado por default SIN verificar certificado: las bases gestionadas
-  # usan self-signed y `verify_peer` contra el bundle del sistema rompe el boot
-  # (`bad_certificate selfsigned_peer`, con un engañoso "killed" al crear la
-  # base). ECTO_SSL=false lo apaga; ECTO_SSL_VERIFY=true vuelve a verificación
-  # estricta.
+  # SSL on by default WITHOUT certificate verification: managed databases use
+  # self-signed certificates and `verify_peer` against the system bundle breaks
+  # the boot (`bad_certificate selfsigned_peer`, with a misleading "killed"
+  # while creating the database). ECTO_SSL=false turns it off;
+  # ECTO_SSL_VERIFY=true goes back to strict verification.
   maybe_ssl =
     cond do
       System.get_env("ECTO_SSL") in ~w(false 0) ->
@@ -53,8 +53,8 @@ if config_env() == :prod do
            socket_options: maybe_ipv6
          ] ++ maybe_ssl
 
-  # Firma/cifra cookies y otros secretos. Se exige: un default en el repo haría
-  # que todos los deploys compartan el mismo secreto.
+  # Signs/encrypts cookies and other secrets. It is required: a default in the
+  # repo would make every deploy share the same secret.
   secret_key_base =
     System.get_env("SECRET_KEY_BASE") ||
       raise """
@@ -62,9 +62,9 @@ if config_env() == :prod do
       You can generate one by calling: mix phx.gen.secret
       """
 
-  # Salts de la cookie de sesión. El endpoint tiene fallbacks amigables para dev,
-  # pero en prod DEBEN venir del entorno: si no, toda la familia comparte los
-  # salts commiteados y las cookies de sesión se pueden forjar/descifrar.
+  # Session cookie salts. The endpoint has friendly fallbacks for dev, but in
+  # prod they MUST come from the environment: otherwise every app of the family
+  # shares the committed salts and session cookies can be forged/decrypted.
   for var <- ["SESSION_SIGNING_SALT", "SESSION_ENCRYPTION_SALT"] do
     System.get_env(var) ||
       raise """
@@ -74,9 +74,9 @@ if config_env() == :prod do
       """
   end
 
-  # PHX_HOST es el hostname pelado (sin esquema ni puerto). Detrás de un proxy
-  # con puerto no estándar, PHX_PORT es el puerto externo para las URLs
-  # generadas. PHX_SCHEME permite `http` cuando no hay terminador TLS.
+  # PHX_HOST is the bare hostname (no scheme, no port). Behind a proxy on a
+  # non-standard port, PHX_PORT is the external port used in generated URLs.
+  # PHX_SCHEME allows `http` when there is no TLS terminator.
   host =
     System.get_env("PHX_HOST") ||
       raise """
@@ -89,11 +89,11 @@ if config_env() == :prod do
 
   config :{{app}}, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
-  # CHECK_ORIGINS: origins permitidos para el chequeo CSRF/WS, separados por
-  # comas (scheme://host:puerto, sin paths). Hace falta cuando la app se ve por
-  # más de un esquema/host/puerto (HTTPS público + HTTP por VPN): sin esto el
-  # POST de /login muere en 403 sin log de controlador.
-  # Unset = comportamiento default de Phoenix (chequea contra la url configurada).
+  # CHECK_ORIGINS: allowed origins for the CSRF/WS check, comma-separated
+  # (scheme://host:port, no paths). Needed when the app is reachable through
+  # more than one scheme/host/port (public HTTPS + HTTP over a VPN): without it
+  # the POST to /login dies with a 403 and no controller log.
+  # Unset = Phoenix's default behavior (checks against the configured url).
   check_origin_config =
     case System.get_env("CHECK_ORIGINS") do
       nil -> []
@@ -101,9 +101,9 @@ if config_env() == :prod do
       origins -> [check_origin: String.split(origins, ",", trim: true)]
     end
 
-  # OJO: force_ssl es compile-time (lo marca el endpoint con compile_env), así
-  # que NO puede vivir acá. Está en config/prod.exs y se apaga sólo en BUILD con
-  # DISABLE_FORCE_SSL=1.
+  # NOTE: force_ssl is compile-time (the endpoint marks it with compile_env), so
+  # it cannot live here. It is in config/prod.exs and is turned off only at BUILD
+  # time with DISABLE_FORCE_SSL=1.
   config :{{app}},
          {{App}}Web.Endpoint,
          [
@@ -112,7 +112,7 @@ if config_env() == :prod do
            secret_key_base: secret_key_base
          ] ++ check_origin_config
 
-  # Google OAuth (opcional — vacío = login con Google deshabilitado).
+  # Google OAuth (optional — empty = Google sign-in disabled).
   config :{{app}}, :google_oauth,
     client_id: System.get_env("GOOGLE_OAUTH_CLIENT_ID"),
     client_secret: System.get_env("GOOGLE_OAUTH_CLIENT_SECRET"),
@@ -121,12 +121,12 @@ if config_env() == :prod do
         "#{scheme}://#{host}/auth/google/callback"
 end
 
-# --- Variables propias de {{App}} ------------------------------------------
-# Declaralas con default explícito y leelas en runtime, nunca con
-# Application.compile_env (un key leído en compile-time y seteado acá aborta el
-# boot con "has a different value set for key ... during runtime").
+# --- Variables of {{App}} itself --------------------------------------------
+# Declare them with an explicit default and read them at runtime, never with
+# Application.compile_env (a key read at compile time and set here aborts the
+# boot with "has a different value set for key ... during runtime").
 #
-# Ejemplos de la familia:
+# Examples:
 #   config :{{app}}, :uploads,
 #     dir: System.get_env("{{APP}}_UPLOADS_DIR", "priv/static/uploads")
 #   config :{{app}}, :inference, {{App}}.Inference.Config.load_from_env()

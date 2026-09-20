@@ -1,123 +1,130 @@
-# BOOTSTRAP.md — cómo nace una app de la familia
+# BOOTSTRAP.md — how an app of the family is born
 
-Procedimiento mecánico, con las trampas ya vistas. El orden importa: **primero
-los specs, después el código.**
+A mechanical procedure, with the traps already seen. The order matters: **the
+specs first, the code after.**
 
-1. `README.md` (índice) → `SPEC-design.md`, `SPEC-config.md`, `SPEC-docker.md`.
-2. `VERSIONS.md` — lo que se fija.
-3. `bash skeleton/bootstrap.sh <destino>` (esta guía).
-4. `mix precommit` + el smoke del release (`SPEC-docker.md` §Verificación).
+1. `README.md` (index) → `SPEC-design.md`, `SPEC-config.md`, `SPEC-docker.md`.
+2. `VERSIONS.md` — what gets pinned.
+3. `bash skeleton/bootstrap.sh <target>` (this guide).
+4. `mix precommit` + the release smoke test (`SPEC-docker.md` §Verification
+   before pushing).
 
-## Un comando
+## One command
 
 ```bash
-bash skeleton/bootstrap.sh ~/Workspace/Repos/alvarolizama/<app>
+bash skeleton/bootstrap.sh /path/to/<app>
 ```
 
-Hace, en orden:
+In order, it:
 
-| Paso | Qué |
+| Step | What |
 |---|---|
 | 1 | `mix phx.new <scratch> --app <app> --binary-id --no-version-check` |
-| 2 | `rsync` del scaffold al destino (conserva el `README.md` y el `.gitignore` del repo) |
-| 3 | copia `skeleton/overlay/**` reemplazando `{{app}}` / `{{App}}` / `{{APP}}` y **falla si queda algún placeholder** |
-| 4 | mergea en `.gitignore` las entradas de la familia (`.riel/`, `/priv/static/uploads/`, `erl_crash.dump`) |
-| 5 | aplica el tema `dim`: `themes: dim --default` en `app.css`, borra los temas/variant del scaffold, pone `data-theme="dim"` en `root.html.heex`, borra el switcher inline, agrega `favicon.svg` a `static_paths` |
-| 6 | agrega la ruta `GET /health` al router (scope sin pipeline, fuera de `:browser`) |
+| 2 | `rsync` of the scaffold into the target (keeps the repo's `README.md` and `.gitignore`) |
+| 3 | copies `skeleton/overlay/**` replacing `{{app}}` / `{{App}}` / `{{APP}}` and **fails if any placeholder is left** |
+| 4 | merges the family entries into `.gitignore` (`.riel/`, `/priv/static/uploads/`, `erl_crash.dump`) |
+| 5 | applies the `dim` theme: `themes: dim --default` in `app.css`, deletes the scaffold's themes/variant, sets `data-theme="dim"` in `root.html.heex`, deletes the inline switcher, adds `favicon.svg` to `static_paths` |
+| 6 | adds the `GET /health` route to the router (a scope with no pipeline, outside `:browser`) |
 
-**No hace** (lo imprime al final): `mix deps.get`, crear la base, el primer commit.
+**It does not** (it prints this at the end): `mix deps.get`, create the
+database, the first commit.
 
-### Qué trae el overlay (15 archivos)
+### What the overlay brings (16 files)
 
-| Archivo | Qué aporta |
+| File | What it contributes |
 |---|---|
-| `Dockerfile` | multi-stage canónico (guard de OOM, healthcheck, non-root, sin `EXPOSE`) |
+| `Dockerfile` | the canonical multi-stage build (OOM guard, healthcheck, non-root, no `EXPOSE`) |
 | `docker/entrypoint.sh` | `Release.setup` → `start`, `SKIP_MIGRATIONS=1` |
-| `.dockerignore` | incluye `priv/static/uploads/` (el hueco que tenía Dran) |
-| `.env.example` | plantilla completa de variables |
-| `config/runtime.exs` | env vars, boot fail-closed, TLS de la base, `CHECK_ORIGINS` |
-| `config/prod.exs` | `cache_static_manifest`, gate de `force_ssl`, Swoosh |
-| `lib/<app>/release.ex` | `setup/0` · `create/0` · `migrate/0` · `seed/0` idempotentes |
-| `lib/<app>_web/endpoint.ex` | bloque de sesión de la familia (`renew: true`, salts distintos) |
-| `lib/<app>_web/controllers/health_controller.ex` | `/health` que no toca la base |
-| `rel/overlays/bin/{migrate,setup,server}` + `.bat` | bins del release |
-| `priv/repo/seeds_prod.exs` | stub documentado del seed de producción (opt-in) |
-| `lib/<app>_web/router.ex` | **no es overlay**: el bootstrap inserta la ruta `GET /health` |
+| `.dockerignore` | includes `priv/static/uploads/` (an audit finding in a live app) |
+| `.env.example` | the complete variable template |
+| `config/runtime.exs` | env vars, fail-closed boot, database TLS, `CHECK_ORIGINS` |
+| `config/prod.exs` | `cache_static_manifest`, the `force_ssl` gate, Swoosh |
+| `lib/<app>/release.ex` | idempotent `setup/0` · `create/0` · `migrate/0` · `seed/0` |
+| `lib/<app>_web/endpoint.ex` | the family session block (`renew: true`, distinct salts) |
+| `lib/<app>_web/controllers/health_controller.ex` | `/health` that does not touch the database |
+| `rel/overlays/bin/{migrate,setup,server}` + `.bat` | the release bins |
+| `priv/repo/seeds_prod.exs` | documented stub for the production seed (opt-in) |
+| `lib/<app>_web/router.ex` | **not an overlay**: the bootstrap inserts the `GET /health` route |
 
-## Después del bootstrap
+## After the bootstrap
 
 ```bash
 cd <app>
-cp .env.example .env && $EDITOR .env     # SECRET_KEY_BASE, DATABASE_URL, los DOS salts
+cp .env.example .env && $EDITOR .env     # SECRET_KEY_BASE, DATABASE_URL, BOTH salts
 mix deps.get
 mix ecto.create
 mix compile --warnings-as-errors
 mix precommit
 ```
 
-Y para la UI: copiá el Commons (`../DESIGN.md`) tal cual + tu sección
-`## Custom — <App>` (mecánica en `SPEC-design.md` §Propagación).
+And for the UI: copy the Commons (`../DESIGN.md`) as-is + your
+`## Custom — <App>` section (mechanics in `SPEC-design.md` §Propagation).
 
-## Trampas (todas vistas en real)
+## Traps (all seen for real)
 
-- **`mix phx.new` aborta sobre un directorio no vacío y no tiene `--force`.** Por
-  eso el scaffold va a un scratch y se copia con `rsync` — y por eso el repo de
-  la app conserva su `README.md` (producto, en inglés) y su `.gitignore`.
-- **El config de generadores no llega al DDL.** `generators: [binary_id: true]`
-  sólo aplica a lo que producen `mix phx.gen.*`: una migración escrita a mano
-  con `create table(:users)` igual emite `id bigint`, y los `references(...,
-  type: :binary_id)` mueren con "uuid and bigint". Escribí siempre
+- **`mix phx.new` aborts over a non-empty directory and has no `--force`.** That
+  is why the scaffold goes to a scratch and is copied with `rsync` — and why the
+  app's repo keeps its own `README.md` (product, in English) and its
+  `.gitignore`.
+- **Generator config does not reach the DDL.** `generators: [binary_id: true]`
+  only applies to what `mix phx.gen.*` produces: a migration written by hand
+  with `create table(:users)` still emits `id bigint`, and the
+  `references(..., type: :binary_id)` die with "uuid and bigint". Always write
   `create table(:x, primary_key: false) do add :id, :binary_id, primary_key: true …`
-  y `timestamps(type: :utc_datetime_usec)`.
-- **El switcher de tema del scaffold pisa el tema fijo.** Es un `<script>` inline
-  que escribe `data-theme` desde `localStorage`: si queda, la app arranca en
-  `light`/`dark` según el sistema. `bootstrap.sh` lo borra — verificalo con
+  and `timestamps(type: :utc_datetime_usec)`.
+- **The scaffold's theme switcher overrides the fixed theme.** It is an inline
+  `<script>` that writes `data-theme` from `localStorage`: if it stays, the app
+  boots in `light`/`dark` depending on the system. `bootstrap.sh` deletes it —
+  verify with
   `grep -n 'phx:theme' lib/<app>_web/components/layouts/root.html.heex` → 0.
-- **`~p"/favicon.svg"` no compila hasta que la ruta esté en `static_paths/0`**
-  (`lib/<app>_web.ex`): el warning
-  `no route path for <App>Web.Router matches "/favicon.svg"` parece un bug de
-  rutas. Con `--warnings-as-errors` rompe el gate. El bootstrap ya lo agrega.
-- **Los `{{…}}` del scaffold son HEEx legítimo**, no placeholders: el chequeo del
-  bootstrap sólo mira los archivos del overlay (`:for={{id, msg} <- @streams.messages}`).
-- **El seed de producción no existe en el scaffold.** `Release.seed/0` evalúa
-  `priv/repo/seeds_prod.exs`: el overlay lo crea como stub y `seed/0` no falla si
-  el archivo falta (una app sin primera cuenta tiene que poder arrancar).
-- **En `:prod`, `assets.deploy` ANTES de `compile` muere** con
-  `Can't resolve 'phoenix-colocated/<app>/colocated.css'` — los assets colocalados
-  se generan al compilar. Orden correcto (el del Dockerfile):
+- **`~p"/favicon.svg"` does not compile until the route is in `static_paths/0`**
+  (`lib/<app>_web.ex`): the warning
+  `no route path for <App>Web.Router matches "/favicon.svg"` looks like a
+  routing bug. With `--warnings-as-errors` it breaks the gate. The bootstrap
+  already adds it.
+- **The scaffold's `{{…}}` are legitimate HEEx**, not placeholders: the
+  bootstrap's check only looks at the overlay files
+  (`:for={{id, msg} <- @streams.messages}`).
+- **The production seed does not exist in the scaffold.** `Release.seed/0`
+  evaluates `priv/repo/seeds_prod.exs`: the overlay creates it as a stub and
+  `seed/0` does not fail when the file is missing (an app with no first account
+  must still boot).
+- **In `:prod`, `assets.deploy` BEFORE `compile` dies** with
+  `Can't resolve 'phoenix-colocated/<app>/colocated.css'` — colocated assets are
+  generated while compiling. Correct order (the Dockerfile's):
   `mix deps.get --only prod` → `mix compile` → `mix assets.deploy` → `mix release`.
-- **Postgres local sin TLS necesita `ECTO_SSL=false`.** El default del esqueleto
-  es SSL activado (para bases gestionadas); contra un Postgres local el síntoma
-  es engañoso: `failed to connect: ** (Postgrex.Error) ssl not available` y
-  `failed to create db for <App>.Repo: "killed"` (el `"killed"` es la conexión
-  TLS caída, no la base).
-- **`Release.setup/0` corre en CADA deploy.** Todo lo que toque la base va
-  envuelto en `Ecto.Migrator.with_repo/2` (durante `bin/<app> eval` el árbol de
-  supervisión no está arrancado) y `storage_up/1` devuelve `{:error, :already_up}`
-  (átomo) o el tuple legacy: hay que matchear ambos.
-- **`Application.compile_env` + `runtime.exs` abortan el boot** con "has a
-  different value set for key … during runtime". Un key que `runtime.exs` setea
-  se lee con `Application.get_env/2` en `start/2`, nunca en un module attribute.
-- **No metas dominio en el esqueleto.** Si tu app necesita
-  `WEBHOOK_SECRET` u otra variable requerida, va en **su** `runtime.exs` — el
-  esqueleto tiene que arrancar con las cinco requeridas de `SPEC-config.md` y
-  nada más.
+- **A local Postgres without TLS needs `ECTO_SSL=false`.** The skeleton's default
+  is SSL on (for managed databases); against a local Postgres the symptom is
+  misleading: `failed to connect: ** (Postgrex.Error) ssl not available` and
+  `failed to create db for <App>.Repo: "killed"` (the `"killed"` is the dropped
+  TLS connection, not the database).
+- **`Release.setup/0` runs on EVERY deploy.** Anything touching the database goes
+  wrapped in `Ecto.Migrator.with_repo/2` (during `bin/<app> eval` the supervision
+  tree is not started) and `storage_up/1` returns `{:error, :already_up}` (an
+  atom) or the legacy tuple: both have to be matched.
+- **`Application.compile_env` + `runtime.exs` abort the boot** with "has a
+  different value set for key … during runtime". A key that `runtime.exs` sets
+  is read with `Application.get_env/2` in `start/2`, never in a module attribute.
+- **Do not put domain in the skeleton.** If your app needs `WEBHOOK_SECRET` or
+  another required variable, it goes in **its own** `runtime.exs` — the skeleton
+  must boot with the five required variables of `SPEC-config.md` and nothing
+  else.
 
-## Gates del bootstrap
+## Bootstrap gates
 
-| Gate | Comando | Esperado |
+| Gate | Command | Expected |
 |---|---|---|
-| Placeholders | (el propio bootstrap) | 0 placeholders en los archivos del overlay |
-| Compila | `mix compile --warnings-as-errors` | sin warnings propios |
+| Placeholders | (the bootstrap itself) | 0 placeholders in the overlay files |
+| Compiles | `mix compile --warnings-as-errors` | no warnings of its own |
 | Suite | `mix test` | 0 failures |
-| Release | `MIX_ENV=prod mix release` + `ls _build/prod/rel/<app>/bin` | existe `<app>`, `migrate`, `server`, `setup` |
-| Smoke | `bin/<app> eval "IO.puts(:ok)"` con las 5 requeridas | `:ok` |
-| Setup real | `bin/<app> eval "<App>.Release.setup"` contra Postgres | crea la base, migra, seedea |
+| Release | `MIX_ENV=prod mix release` + `ls _build/prod/rel/<app>/bin` | `<app>`, `migrate`, `server`, `setup` exist |
+| Smoke | `bin/<app> eval "IO.puts(:ok)"` with the 5 required vars | `:ok` |
+| Real setup | `bin/<app> eval "<App>.Release.setup"` against Postgres | creates the database, migrates, seeds |
 
-## Cuando el estándar cambia
+## When the standard changes
 
-- Cambio en el **Commons** (`DESIGN.md`) → se propaga a los `DESIGN.md` de las
-  apps (copiando).
-- Cambio en el **esqueleto** → se hace acá; las apps vivas **no** se
-  re-sincronizan solas: se porta a mano lo que aplique (`SPEC-*.md` dice qué es
-  contrato y qué es dominio).
+- A change in the **Commons** (`DESIGN.md`) → it propagates into the apps'
+  `DESIGN.md` (by copying).
+- A change in the **skeleton** → it is made here; live apps are **not**
+  re-synced on their own: what applies is ported by hand (the `SPEC-*.md` files
+  say what is contract and what is domain).
