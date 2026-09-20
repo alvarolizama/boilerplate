@@ -57,8 +57,8 @@ porta al esqueleto.
 Plantilla lista para copiar (TokenGate **no** trae `.env.example`; Dran sí, y es
 el mejor documento de la familia): `dran/.env.example`
 (`:19` `PORT`, `:27` `PHX_HOST`, `:48` `SECRET_KEY_BASE`, `:53` `DATABASE_URL`,
-`:57` `POOL_SIZE`, `:76-77` salts, `:123` `UPLOADS_DIR`,
-`:137` `DRAN_INFERENCE_API_URL`).
+`:57` `POOL_SIZE`, `:76-77` salts, `:125` `UPLOADS_DIR`,
+`:139` `DRAN_INFERENCE_API_URL`).
 
 ## Variables propias de la app
 
@@ -67,8 +67,8 @@ default explícito. Patrón de referencia:
 
 | App | Var | Para qué |
 |---|---|---|
-| Dran | `UPLOADS_DIR` | directorio de subidas — exige volumen persistente (`dran/.env.example:123`) |
-| Dran | `DRAN_INFERENCE_API_URL` / `_API_KEY` | endpoint OpenAI-compatible (embeddings, chat, workers) (`dran/.env.example:137`) |
+| Dran | `UPLOADS_DIR` | directorio de subidas — exige volumen persistente (`dran/.env.example:125`) |
+| Dran | `DRAN_INFERENCE_API_URL` / `_API_KEY` | endpoint OpenAI-compatible (embeddings, chat, workers) (`dran/.env.example:139`) |
 | Dran | `DRAN_RESET` | **destructivo**: borra el esquema en cada arranque mientras esté puesto (`dran/docker/entrypoint.sh:29-37`) |
 | TokenGate | `TOKENGATE_ADMIN_PASSWORD` / `_EMAIL` | bootstrap del primer admin en el boot |
 | TokenGate | `CIRCUIT_BREAKER_*`, `PROXY_RECEIVE_TIMEOUT_MS`, `ROUTING_SLOW_*` | comportamiento del proxy |

@@ -20,7 +20,10 @@ Referencia canónica: **`tokengate/Dockerfile`** (117 líneas) +
 5. **Sin secretos en `ARG`/`ENV`** — se hornean en las capas. Sólo hay **un**
    build arg legítimo: `DISABLE_FORCE_SSL` (`tokengate/Dockerfile:34-35`).
 6. **`force_ssl` es compile-time**: se apaga con build arg, no con runtime
-   (`tokengate/config/prod.exs:14-20`).
+   (`tokengate/config/prod.exs:14-20`). El **esqueleto sale con HTTPS por
+   default** (`DISABLE_FORCE_SSL=""`); TokenGate sale HTTP-plano (`"1"`) porque
+   vive detrás de VPN — el default de una app nueva no se hereda de ahí sin
+   decidirlo.
 7. **El healthcheck apunta a `/health`, nunca a `/`**: `/` responde 302 y un
    proxy que espera 200 marca el contenedor como caído (`tokengate/Dockerfile:114-115`).
 8. **`PORT` (escucha) == puerto que el proxy expone**; `PHX_PORT` es sólo el de
@@ -59,10 +62,11 @@ está arriba (`tokengate/lib/tokengate_web/controllers/health_controller.ex:1-27
 Es deliberado: el probe corre mientras el boot siembra catálogo y particiones, y
 un probe que consulte la base puede tumbar un contenedor sano.
 
-> ⚠️ **Dran hoy devuelve 503 si la base no contesta**
-> (`dran/lib/dran_web/controllers/health_controller.ex:6`, `SELECT 1`). Si se
-> copia el `HEALTHCHECK` canónico sobre ese `/health`, el probe pasa a depender
-> del pool: primero hay que volverlo DB-free.
+Dran usaba un `/health` que consultaba la base (`SELECT 1`) y devolvía 503 si no
+contestaba; al portarse el `HEALTHCHECK` canónico se volvió DB-free primero
+(`dran/lib/dran_web/controllers/health_controller.ex`), porque con el probe
+apuntado a un endpoint que toca la base el contenedor se reporta caído durante el
+arranque. Si una app necesita un readiness con base, va en **otra** ruta.
 
 ## Entrypoint
 
@@ -89,9 +93,10 @@ exec bin/<app> start
 Canónico: `_build`, `deps`, `node_modules`, assets generados, `.git`, `.env*`,
 test/docs/tmp, basura de editor.
 
-> ⚠️ **Hueco visto en Dran**: su `.dockerignore` no ignora
-> `priv/static/uploads`, así que `COPY priv priv` hornea las subidas locales
-> (93 archivos / 72 MB en el working tree al momento del audit).
+Regla dura que costó un audit: **cualquier directorio de subidas va ignorado**.
+Dran no ignoraba `priv/static/uploads`, así que `COPY priv priv` horneaba las
+subidas locales (93 archivos / 72 MB en el working tree al momento del audit).
+Estar en `.gitignore` no alcanza — el contexto de build es otra cosa.
 
 ## Puertos
 
