@@ -67,7 +67,7 @@ apps Phoenix, el gate es **`mix precommit`**.
 | C5–C7 | Cards · tablas · modales (simple y de dos columnas) |
 | C8 | Buscadores y selects: matriz de control + reglas duras |
 | C9–C11 | Gráficas · estados · convenciones |
-| C12 | Shell: sidebar, navegación y menús |
+| C12 | Shell: sidebar, navegación y menús · **reglas duras** (fila del drawer, scroll) |
 | Apéndices | A: valores del tema `dim` · B: verificación |
 
 ## Autoría
