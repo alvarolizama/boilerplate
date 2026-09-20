@@ -62,11 +62,11 @@ está arriba (`tokengate/lib/tokengate_web/controllers/health_controller.ex:1-27
 Es deliberado: el probe corre mientras el boot siembra catálogo y particiones, y
 un probe que consulte la base puede tumbar un contenedor sano.
 
-Dran usaba un `/health` que consultaba la base (`SELECT 1`) y devolvía 503 si no
-contestaba; al portarse el `HEALTHCHECK` canónico se volvió DB-free primero
-(`dran/lib/dran_web/controllers/health_controller.ex`), porque con el probe
-apuntado a un endpoint que toca la base el contenedor se reporta caído durante el
-arranque. Si una app necesita un readiness con base, va en **otra** ruta.
+Dran todavía tiene un `/health` que consulta la base
+(`dran/lib/dran_web/controllers/health_controller.ex:6`, `SELECT 1`) y devuelve
+503 si no contesta: **antes** de ponerle el `HEALTHCHECK` canónico hay que
+volverlo DB-free, o el contenedor se reporta caído durante el arranque. Si una
+app necesita un readiness con base, va en **otra** ruta.
 
 ## Entrypoint
 
@@ -94,9 +94,9 @@ Canónico: `_build`, `deps`, `node_modules`, assets generados, `.git`, `.env*`,
 test/docs/tmp, basura de editor.
 
 Regla dura que costó un audit: **cualquier directorio de subidas va ignorado**.
-Dran no ignoraba `priv/static/uploads`, así que `COPY priv priv` horneaba las
-subidas locales (93 archivos / 72 MB en el working tree al momento del audit).
-Estar en `.gitignore` no alcanza — el contexto de build es otra cosa.
+Dran no ignora `priv/static/uploads`, así que `COPY priv priv` hornea las subidas
+locales (93 archivos / 72 MB en el working tree al momento del audit). Estar en
+`.gitignore` no alcanza — el contexto de build es otra cosa.
 
 ## Puertos
 
@@ -133,6 +133,24 @@ curl -fsS http://127.0.0.1:4000/health
 > Contra un Postgres local sin TLS hay que pasar `ECTO_SSL=false`: el default es
 > SSL activado y el síntoma es engañoso (`ssl not available` +
 > `failed to create db … "killed"`).
+
+## Pendientes conocidos por app
+
+Detectado al auditar cada app contra estos specs. **No se porta nada a una app
+sin decidirlo**: queda acá como backlog, con el ancla exacta (el gate
+`scripts/check-spec-refs.py` la verifica).
+
+### Dran
+
+| Pendiente | Ancla | Nota |
+|---|---|---|
+| `/health` consulta la base y devuelve 503 | `dran/lib/dran_web/controllers/health_controller.ex:6` | volverlo DB-free **antes** de ponerle el `HEALTHCHECK` |
+| Imagen sin `HEALTHCHECK` | `dran/Dockerfile` | el runtime ya instala `curl` para el check del proxy |
+| `deps.compile` sin guard de OOM | `dran/Dockerfile:48` | `ERL_AFLAGS="+S 1:1"` para build containers de 512 MB–1 GB |
+| `.dockerignore` sin las subidas | `dran/.dockerignore` | 93 archivos / 72 MB horneados por `COPY priv priv` |
+| `DISABLE_FORCE_SSL` en `""` (HTTPS) | `dran/Dockerfile:36` | decisión de deploy: **no** se hereda el `"1"` de TokenGate |
+| Sesión sin `renew` y salts iguales | `dran/lib/dran_web/endpoint.ex:19-20` | ver `SPEC-config.md` §Pendiente en Dran |
+| README §Production sin guía de contenedor | `dran/README.md:261` | healthcheck, PORT vs Ports Exposes, primera ejecución, volumen de uploads |
 
 ## Anti-patrones
 

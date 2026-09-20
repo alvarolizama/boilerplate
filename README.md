@@ -60,6 +60,10 @@ es `raise` en su `runtime.exs`) y con tablas particionadas que no necesita.
 | **Commons** (`DESIGN.md`) | el estándar de UI, que evoluciona seguido | se edita aquí y se copia **byte-exacto** al `DESIGN.md` de cada app (más `## Custom — <App>`); nunca se edita en el repo de la app |
 | **Esqueleto** (`skeleton/`) | la capa portátil, que cambia poco | se usa **al nacer** una app (`BOOTSTRAP.md`); las apps vivas no se re-sincronizan solas |
 
+**Nada se porta a una app por iniciativa propia.** Lo que falta en cada app vive
+como backlog en `SPEC-docker.md` §Pendientes conocidos por app, con el ancla
+exacta, y se porta cuando se decide — el estándar primero, la app después.
+
 ## Mapa del repo
 
 ```text
