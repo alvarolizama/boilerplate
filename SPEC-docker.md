@@ -160,7 +160,7 @@ updated when it is decided.
 | `.dockerignore` missing the uploads directory | uploads get baked by `COPY priv priv` (one audit: 93 files / 72 MB) |
 | `DISABLE_FORCE_SSL` left at `"1"` | HTTPS is a per-app deploy decision, not an inherited default |
 | Session without `renew: true` and/or equal salts | absolute cookie lifetime, forgeable sessions — see `SPEC-config.md` |
-| README with no production/container section | healthcheck, `PORT` vs Ports Exposes, first run, uploads volume |
+| README with no production/container section | healthcheck, `PORT` vs Ports Exposes, first run, uploads volume — the section that README owes: `SPEC-readme.md` |
 
 ## Anti-patterns
 

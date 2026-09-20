@@ -21,11 +21,12 @@ code get touched. Any agent landing on an app of the family starts here.
 | 2 | `SPEC-design.md` | how the Commons lands in code and how it is verified |
 | 3 | `SPEC-config.md` | env vars, session/cookies, DB-backed settings |
 | 4 | `SPEC-docker.md` | Dockerfile, entrypoint, healthcheck, ports |
-| 5 | `SPEC-auth.md` | how people get in: password, Google, SSO — all optional — plus profiles |
-| 6 | `SPEC-identity.md` | the SSO mode with the family IdP (Umbral), in detail |
-| 7 | `VERSIONS.md` | pinned versions (toolchain, images, deps) |
-| 8 | `BOOTSTRAP.md` | how an app is born, step by step |
-| 9 | `skeleton/` | the portable layer already materialized, with placeholders |
+| 5 | `SPEC-readme.md` | the two READMEs — this index and the app's product README — with their sections and validation |
+| 6 | `SPEC-auth.md` | how people get in: password, Google, SSO — all optional — plus profiles |
+| 7 | `SPEC-identity.md` | the SSO mode with the family IdP (Umbral), in detail |
+| 8 | `VERSIONS.md` | pinned versions (toolchain, images, deps) |
+| 9 | `BOOTSTRAP.md` | how an app is born, step by step |
+| 10 | `skeleton/` | the portable layer already materialized, with placeholders |
 
 Every spec is **self-contained**: the contract and the snippets that matter are
 quoted where they belong, so nothing here depends on reading a file outside this
@@ -68,6 +69,7 @@ boilerplate/
 ├── SPEC-design.md     # Commons → files → verification → propagation
 ├── SPEC-config.md     # env vars, session, DB-backed settings
 ├── SPEC-docker.md     # container, entrypoint, healthcheck, ports
+├── SPEC-readme.md     # the two READMEs: the index and the app's product README
 ├── SPEC-auth.md       # sign-in modes (password, Google, SSO) + profiles
 ├── SPEC-identity.md   # the SSO mode with Umbral, in detail
 ├── VERSIONS.md        # pinned versions
@@ -138,6 +140,7 @@ the spec that owns each piece.
 | Container: build/runtime stages, ports, healthcheck, the `force_ssl` gate | `SPEC-docker.md` §Build stage · §Runtime stage · §Ports |
 | First deploy (create DB → migrate → seed) and the first account | `SPEC-docker.md` §Entrypoint · `BOOTSTRAP.md` §After the bootstrap |
 | Verifying before pushing (release, smoke, image) | `SPEC-docker.md` §Verification before pushing |
+| The README a new app is born with, and the production section it owes | `SPEC-readme.md` · `skeleton/overlay/README.md` |
 | Pinned versions (toolchain, images, deps) | `VERSIONS.md` |
 | Auditing a live app against the standard | `SPEC-docker.md` §Known gaps |
 
