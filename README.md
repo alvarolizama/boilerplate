@@ -150,9 +150,12 @@ declared in its own `runtime.exs` (`SPEC-config.md` §The app's own variables).
 
 ## The theme
 
-One line in `app.css` plus `data-theme` in `root.html.heex`. The family runs
-daisyUI **`dim --default`** — the reference values are in Appendix A of the doc.
-Changing the theme does not touch the views.
+The family compiles its daisyUI set in `app.css` (`dim --default` plus the 35
+built-ins) and `root.html.heex` writes `Theme.current()` into `data-theme`. The
+theme in use is chosen at **runtime** with `THEME` (default `dim`): switching it
+is a restart, not a rebuild, and never touches the views. `dim`'s reference
+values are in Appendix A of the doc; an unknown `THEME` falls back to `dim` with
+a warning. `SPEC-config.md` §The theme has the detail.
 
 ## Verifying an implementation
 

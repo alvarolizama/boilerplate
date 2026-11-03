@@ -23,13 +23,13 @@ In order, it:
 | 2 | `rsync` of the scaffold into the target (keeps the repo's `README.md` and `.gitignore`) |
 | 3 | copies `skeleton/overlay/**` replacing `{{app}}` / `{{App}}` / `{{APP}}` and **fails if any placeholder is left** (an existing `README.md` is kept, never clobbered) |
 | 4 | merges the family entries into `.gitignore` (`.riel/`, `/priv/static/uploads/`, `erl_crash.dump`) |
-| 5 | applies the `dim` theme: `themes: dim --default` in `app.css`, deletes the scaffold's themes/variant, sets `data-theme="dim"` in `root.html.heex`, deletes the inline switcher, adds `favicon.svg` to `static_paths` |
+| 5 | applies the family's themes: `themes: <the 35 built-ins, dim --default>` in `app.css`, deletes the scaffold's themes/variant, sets `data-theme={Theme.current()}` in `root.html.heex` (reads `THEME`), deletes the inline switcher, adds `favicon.svg` to `static_paths` |
 | 6 | adds the `GET /health` route to the router (a scope with no pipeline, outside `:browser`) |
 
 **It does not** (it prints this at the end): `mix deps.get`, create the
 database, the first commit.
 
-### What the overlay brings (19 files)
+### What the overlay brings (21 files)
 
 | File | What it contributes |
 |---|---|
@@ -43,8 +43,10 @@ database, the first commit.
 | `config/prod.exs` | `cache_static_manifest`, the `force_ssl` gate, Swoosh |
 | `lib/<app>/release.ex` | idempotent `setup/0` · `create/0` · `migrate/0` · `seed/0` |
 | `lib/<app>_web/endpoint.ex` | the family session block (`renew: true`, distinct salts) |
+| `lib/<app>_web/theme.ex` | `Theme.current/0`: validates `THEME` against the compiled set, falls back to `dim` |
 | `lib/<app>_web/controllers/health_controller.ex` | `/health` that does not touch the database |
 | `test/<app>_web/controllers/health_controller_test.exs` | pins the probe (200, no session) and goes red if `/health` queries the DB |
+| `test/<app>_web/theme_test.exs` | pins `THEME`: default `dim`, unknown falls back, and `Theme.themes/0` matches the `themes:` line in `app.css` |
 | `rel/overlays/bin/{migrate,setup,server}` + `.bat` | the release bins |
 | `priv/repo/seeds_prod.exs` | documented stub for the production seed (opt-in) |
 | `lib/<app>_web/router.ex` | **not an overlay**: the bootstrap inserts the `GET /health` route |
@@ -85,11 +87,16 @@ And for the UI: copy the Commons (`../DESIGN.md`) as-is + your
   `references(..., type: :binary_id)` die with "uuid and bigint". Always write
   `create table(:x, primary_key: false) do add :id, :binary_id, primary_key: true …`
   and `timestamps(type: :utc_datetime_usec)`.
-- **The scaffold's theme switcher overrides the fixed theme.** It is an inline
+- **The scaffold's theme switcher overrides the selected theme.** It is an inline
   `<script>` that writes `data-theme` from `localStorage`: if it stays, the app
   boots in `light`/`dark` depending on the system. `bootstrap.sh` deletes it —
   verify with
   `grep -n 'phx:theme' lib/<app>_web/components/layouts/root.html.heex` → 0.
+  The theme is `THEME` at runtime (`Theme.current/0`), never `localStorage`.
+- **`THEME` only picks among the COMPILED themes.** daisyUI resolves themes at
+  build time: a name missing from the `themes:` list in `app.css` (or from
+  `@themes` in `lib/<app>_web/theme.ex`) falls back to `dim` and logs a warning.
+  Adding a theme = both lists, then rebuild the assets.
 - **`~p"/favicon.svg"` does not compile until the route is in `static_paths/0`**
   (`lib/<app>_web.ex`): the warning
   `no route path for <App>Web.Router matches "/favicon.svg"` looks like a

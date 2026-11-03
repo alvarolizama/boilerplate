@@ -23,7 +23,8 @@ implementation (frozen, read-only).
 4. **Custom declares exceptions, not taste**, and every block says *why* it is
    not shareable. It does not duplicate Commons tables (`dim` palette, buttons
    by context): it points at §C2.1 / Appendix A.
-5. **One single theme `dim --default`**, no `@apply` in CSS, no `table-zebra`.
+5. **One single live theme per app, chosen at runtime by `THEME`** (default
+   `dim`), no `@apply` in CSS, no `table-zebra`.
 
 ## Rule → file map
 
@@ -32,7 +33,7 @@ the portable layer in `skeleton/` does not carry UI components.
 
 | Rule | Where it must exist |
 |---|---|
-| §C2 Theme and tokens | `assets/css/app.css`: `@plugin "../vendor/daisyui" { themes: dim --default; }` — and `data-theme="dim"` on `<html>` in `lib/<app>_web/components/layouts/root.html.heex` |
+| §C2 Theme and tokens | `assets/css/app.css`: `@plugin "../vendor/daisyui" { themes: dim --default, light, dark, …; }` — and `data-theme={<App>Web.Theme.current()}` on `<html>` in `lib/<app>_web/components/layouts/root.html.heex`; `THEME` is read in `config/runtime.exs` and validated in `lib/<app>_web/theme.ex` |
 | §C2 Icons | `assets/css/app.css`: `@plugin "../vendor/heroicons"` |
 | §C2.1 Brand | `<.live_title>` in `root.html.heex`; static routes in `lib/<app>_web.ex` (`static_paths`, `favicon.svg` included) |
 | §C4 Primitives | `lib/<app>_web/components/core_components.ex`: `flash`, `button`, `input` (styled per the Commons, not the scaffold's defaults) |
@@ -51,8 +52,9 @@ Appendix B of `DESIGN.md` carries the greps; adapt the paths to your repo. The
 three that break most often:
 
 ```bash
-grep -n 'data-theme' lib/<app>_web/components/layouts/root.html.heex   # the declared theme (§C2)
-grep -n 'themes:' assets/css/app.css                                   # a single --default theme (§C2)
+grep -n 'data-theme' lib/<app>_web/components/layouts/root.html.heex   # Theme.current() (§C2)
+grep -n 'themes:' assets/css/app.css                                   # the compiled set, `dim --default` (§C2)
+grep -n 'THEME' config/runtime.exs lib/<app>_web/theme.ex              # the runtime knob (§C2)
 grep -rn 'table-zebra\|@apply' lib/ assets/css/                        # 0 (§C2, §C6)
 ```
 

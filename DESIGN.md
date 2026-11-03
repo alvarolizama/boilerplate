@@ -31,10 +31,11 @@ Commons.
 1. **Native daisyUI + Tailwind.** Do not invent components daisyUI already
    ships (`btn`, `card`, `table`, `badge`, `input`, `select`, `alert`, `modal`,
    `dropdown`, `tabs`). Custom CSS only for **global** conventions.
-2. **One single theme per app, chosen in `app.css`.** The family runs daisyUI
-   **`dim --default`**, declared in `app.css` and in the `data-theme` of
-   `root.html.heex`; the concrete values of the theme in use are in
-   **Appendix A**. No hardcoded hex/oklch in templates: always the theme vars.
+2. **One single live theme per app, chosen at runtime by `THEME`.** The family
+   compiles its daisyUI set in `app.css` (`dim --default` plus the rest) and
+   `root.html.heex` writes the chosen one into `data-theme`; the default's
+   values are in **Appendix A**. No hardcoded hex/oklch in templates: always the
+   theme vars.
 3. **Reuse before creating.** Look at `*Web.CoreComponents` before writing
    markup by hand: inputs, tables, headers, icons are already there.
 4. **Verifiable.** Every interactive control carries a stable `id` for tests
@@ -46,19 +47,30 @@ Commons.
 /* assets/css/app.css */
 @plugin "../vendor/heroicons";
 @plugin "../vendor/daisyui" {
-  themes: dim --default;   /* ← the family's SINGLE theme (values in Appendix A) */
+  /* ← the family's set: `dim` is the default, THEME picks any of the rest */
+  themes: dim --default, light, dark, cupcake, bumblebee, emerald, corporate,
+          synthwave, retro, cyberpunk, valentine, halloween, garden, forest,
+          aqua, lofi, pastel, fantasy, wireframe, black, luxury, dracula, cmyk,
+          autumn, business, acid, lemonade, night, coffee, winter, nord, sunset,
+          caramellatte, abyss, silk;
 }
 ```
 
 ```heex
 <%!-- lib/<app>_web/components/layouts/root.html.heex --%>
-<html data-theme="dim">
+<html data-theme={<App>Web.Theme.current()}>
 ```
 
+`Theme.current/0` reads `THEME` (default `dim`), validates it against the
+compiled set and falls back to `dim` with a warning on an unknown value. The
+theme is therefore a **runtime** choice: switching it is a restart with another
+`THEME`, never a rebuild.
+
 **Scaffold rule:** if `app.css` came with `themes: false` + `@plugin
-"../vendor/daisyui-theme"` blocks, those blocks have to be **deleted** (plus the
-theme switcher's JS in `root.html.heex`) when you fix a built-in theme, or the
-old theme stays stuck.
+"…daisyui-theme"` blocks (the path varies with the `phx.new` version), those
+blocks have to be **deleted** (plus the theme switcher's JS in
+`root.html.heex`): they re-declare `light`/`dark` — one of them with
+`default: true` — and override the family's set.
 
 Semantic colors (ALWAYS use the vars, never hex/oklch by hand):
 
@@ -82,11 +94,11 @@ Radii and borders come from the theme (`--radius-box`, `--radius-field`,
 
 **The theme rules.** Every color in the app — including the **theme logo's**
 (favicon/icons that follow the theme) and the charts' — comes from the daisyUI
-tokens of the theme declared in `app.css`; no view writes hex/oklch. Changing
-theme = changing **one line** (`themes: <theme> --default`) + `data-theme` in
-`root.html.heex`: the views are not touched. The concrete values of the theme in
-use are in **Appendix A**. The only exception is the **brand** colors (§C2.1),
-which do not follow the theme.
+tokens of the theme in use; no view writes hex/oklch. Changing theme = setting
+**`THEME`** (a restart, no rebuild) — the views are not touched and `app.css`
+does not change. The default's values are in **Appendix A**; the rest are
+daisyUI's own. The only exception is the **brand** colors (§C2.1), which do not
+follow the theme.
 
 ### C2.1 Brand (logo and favicon)
 
@@ -656,7 +668,10 @@ mobile 500×800.
 
 ---
 
-## Appendix A — the `dim` theme (reference values)
+## Appendix A — the `dim` theme (default, reference values)
+
+`dim` is the family's default (`THEME` unset). The other compiled themes are
+daisyUI's built-ins: their values are not copied here.
 
 Source of truth: the `oklch()` values the plugin emits in
 `priv/static/assets/css/app.css`. The hex values are an approximate conversion
@@ -695,8 +710,9 @@ Theme shape: `color-scheme: dark` · radii `box 1rem` / `field 0.5rem` /
 Adapt the paths to your repo. Every grep corresponds to a rule in the doc:
 
 ```bash
-grep -n 'data-theme' lib/<app>_web/components/layouts/root.html.heex    # the declared theme (§C2)
-grep -n 'themes:' assets/css/app.css                                    # a single `--default` theme (§C2)
+grep -n 'data-theme' lib/<app>_web/components/layouts/root.html.heex    # Theme.current() (§C2)
+grep -n 'themes:' assets/css/app.css                                    # the compiled set, `dim --default` (§C2)
+grep -n 'THEME' config/runtime.exs                                      # the runtime knob (§C2)
 grep -rn '@apply' assets/css/                                           # 0
 grep -rn 'table-zebra' lib/                                             # 0 (no zebra, §C6)
 grep -rn 'overflow-x-auto' lib/                                         # wide tables/panels wrapped (§C3)
@@ -706,5 +722,5 @@ grep -c 'grid-auto-rows: minmax(0, 1fr)' assets/css/app.css             # 1 if t
 grep -c 'aside[^>]*label for="sidebar' lib/<app>_web/components/layouts.ex  # 0 (the sidebar carries no toggle of its own)
 grep -rn 'p-4 sm:p-6\|p-4 pb-16 sm:p-6' lib/                            # mobile-first padding (§C3.1)
 grep -rnE '#[0-9a-fA-F]{3,6}\b' lib/ assets/css/app.css                 # 0 outside brand (§C2.1) and named palettes (§C9)
-mix tailwind <app> && grep -c 'data-theme=dim' priv/static/assets/css/app.css  # 1 (§C2)
+mix tailwind <app> && grep -c 'data-theme=dim' priv/static/assets/css/app.css  # ≥1: dim is compiled (§C2)
 ```

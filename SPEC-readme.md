@@ -97,7 +97,7 @@ this spec fixes the sections and what each owes, the template carries the prose.
 | Section | What it must state | Truth it points at |
 |---|---|---|
 | What it is | the problem it solves, for whom, the workflow that matters | the app's own product docs |
-| Stack | toolchain, Phoenix/LiveView, Postgres, the single `dim` theme, the release container | `.tool-versions` · `mix.exs` · `Dockerfile` |
+| Stack | toolchain, Phoenix/LiveView, Postgres, the `THEME`-chosen daisyUI theme, the release container | `.tool-versions` · `mix.exs` · `Dockerfile` |
 | Local development | the copy-get-create-serve sequence, and `GET /health` as the probe | `BOOTSTRAP.md` §After the bootstrap |
 | Configuration | the **five required vars** by name, the optional commons, and that `.env.example` is the complete template; the app's own variables live next to them | `SPEC-config.md` §Required in production · §Optional commons |
 | The UI standard | `DESIGN.md` is the Commons copied as-is plus `## Custom — <App>`; the Commons is edited in the boilerplate repo, never in the app | `SPEC-design.md` |

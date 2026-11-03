@@ -42,6 +42,7 @@ is never ported into the skeleton.
 | Var | Default | What it adjusts |
 |---|---|---|
 | `PORT` | `4000` | listen port (the proxy must point here) |
+| `THEME` | `dim` | daisyUI theme the app renders with (runtime, no rebuild) |
 | `PHX_SCHEME` | `https` | scheme of generated URLs (`http` behind a VPN) |
 | `PHX_PORT` | `443` | external port of generated URLs |
 | `POOL_SIZE` | `10` | connection pool |
@@ -54,6 +55,20 @@ is never ported into the skeleton.
 | `DISABLE_FORCE_SSL` | build arg | turns `force_ssl` off (**compile-time**, see `SPEC-docker.md`) |
 | `SKIP_MIGRATIONS` | unset | the entrypoint skips setup |
 | `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` / `_ALLOWED_DOMAINS` / `_REDIRECT_URI` | unset | sign-in with Google |
+
+### The theme: `THEME`
+
+`THEME` picks the daisyUI theme the app renders with. It is a **runtime**
+variable, not a build one: `assets/css/app.css` compiles the family's set (the
+35 daisyUI built-ins, `dim --default`) and `root.html.heex` carries
+`data-theme={<App>Web.Theme.current()}`. `Theme.current/0` reads the config,
+validates the value against the compiled set and falls back to `dim` with a
+warning — a typo never leaves the app unstyled.
+
+Consequence: switching themes is a **restart with another `THEME`**, no rebuild
+and no view touched. A theme that is not compiled yet needs to be added to both
+the `themes:` list in `app.css` and `@themes` in `lib/<app>_web/theme.ex`
+(`DESIGN.md` §C2). The variable is documented in `.env.example` §UI.
 
 ### Database TLS: the shape of the option
 

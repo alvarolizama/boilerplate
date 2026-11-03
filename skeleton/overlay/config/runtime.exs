@@ -18,6 +18,12 @@ end
 config :{{app}}, {{App}}Web.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# THEME: the daisyUI theme the app renders with (DESIGN.md §C2). It is chosen at
+# RUNTIME — app.css compiles the family's set and root.html.heex writes this
+# value into `data-theme` — so switching it needs no rebuild. An unknown value
+# falls back to `dim` ({{App}}Web.Theme.current/0).
+config :{{app}}, :theme, System.get_env("THEME", "dim")
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

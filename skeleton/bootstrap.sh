@@ -10,7 +10,7 @@
 #   3. copies `skeleton/overlay/**` replacing {{app}} / {{App}} / {{APP}}
 #      (its README.md is skipped when the target already has one)
 #   4. merges the family entries into .gitignore
-#   5. applies the `dim` theme (app.css + data-theme in root.html.heex)
+#   5. applies the family's themes (app.css + `data-theme` from THEME in root.html.heex)
 #
 # It does not: `mix deps.get`, create the database, or the first commit. The
 # remaining steps are printed at the end. Contract and traps: BOOTSTRAP.md.
@@ -192,14 +192,26 @@ if missing:
 print(f"      added: {', '.join(missing) if missing else 'nothing (already there)'}")
 PY
 
-echo "[5/6] dim theme"
-python3 - "$TARGET" "$APP" <<'PY'
+echo "[5/6] themes (THEME, default dim)"
+python3 - "$TARGET" "$APP" "$CAMEL" <<'PY'
 import os
 import re
 import sys
 
-target, app = sys.argv[1:3]
+target, app, camel = sys.argv[1:4]
 warnings = []
+
+# The family's compiled set: `dim` is the default and the rest are selectable at
+# runtime with THEME (Theme.current/0 validates against the same list).
+THEMES = [
+    "dim", "light", "dark", "cupcake", "bumblebee", "emerald", "corporate",
+    "synthwave", "retro", "cyberpunk", "valentine", "halloween", "garden",
+    "forest", "aqua", "lofi", "pastel", "fantasy", "wireframe", "black",
+    "luxury", "dracula", "cmyk", "autumn", "business", "acid", "lemonade",
+    "night", "coffee", "winter", "nord", "sunset", "caramellatte", "abyss",
+    "silk",
+]
+THEME_LIST = ", ".join([THEMES[0] + " --default"] + THEMES[1:])
 
 
 def strip_block(text, marker):
@@ -235,19 +247,37 @@ if os.path.isfile(css_path):
         css = fh.read()
     original = css
 
-    css, n_theme = re.subn(r"themes:\s*false", "themes: dim --default", css, count=1)
+    css, n_theme = re.subn(r"themes:\s*false", "themes: " + THEME_LIST, css, count=1)
 
-    # The scaffold ships its own themes (light + dark) and a dark variant: with a
-    # single `dim --default` theme they are surplus and leave dead selectors.
+    # The scaffold ships its own themes (light + dark) and a dark variant: the
+    # family compiles its own set (THEME_LIST) and the `dark:` variant would only
+    # follow one of them, so both are surplus and leave dead selectors.
     css = re.sub(r"/\* daisyUI theme plugin\..*?\*/\s*", "", css, flags=re.S)
-    css, n_plugin = strip_block(css, '@plugin "../vendor/daisyui-theme"')
+
+    # The plugin path depends on the phx.new version: `../vendor/daisyui-theme`
+    # in the older scaffold, `daisyui/packages/bundle/daisyui-theme` when it
+    # comes from the git dep. Both blocks re-declare `light`/`dark` (the light
+    # one with `default: true`), so leaving either one overrides the family's
+    # set — strip by name, not by path.
+    n_plugin = 0
+    while True:
+        match = re.search(r'@plugin\s+"[^"]*daisyui-theme"', css)
+        if match is None:
+            break
+        css, removed = strip_block(css, match.group(0))
+        n_plugin += removed
     css, n_variant = re.subn(r"@custom-variant dark[^\n]*\n?", "", css)
+    # The comment that headed the removed variant is now misleading.
+    css = re.sub(r"/\* Use the data attribute for dark mode\s*\*/\s*\n?", "", css)
+    # Collapse the blank runs left by the removed blocks.
+    css = re.sub(r"\n{3,}", "\n\n", css)
 
     if css != original:
         with open(css_path, "w", encoding="utf-8") as fh:
             fh.write(css)
         print(
-            "      app.css: dim --default · theme plugins removed: "
+            "      app.css: "
+            f"{len(THEMES)} themes (dim --default) · theme plugins removed: "
             f"{n_plugin} · dark variants removed: {n_variant}"
         )
     if n_theme == 0:
@@ -262,9 +292,9 @@ if os.path.isfile(root_html):
     original = html
 
     # The inline switcher writes data-theme from localStorage and overrides the
-    # family's fixed theme: it is deleted whole.
+    # selected theme: it is deleted whole (with its indentation).
     html = re.sub(
-        r"<script>(?:(?!</script>).)*phx:theme(?:(?!</script>).)*</script>\s*",
+        r"[ \t]*<script>(?:(?!</script>).)*phx:theme(?:(?!</script>).)*</script>[ \t]*\n?",
         "",
         html,
         flags=re.S,
@@ -273,17 +303,29 @@ if os.path.isfile(root_html):
     # The title carries the app name plain (the family omits the suffix).
     html = html.replace(' suffix=" · Phoenix Framework"', "")
 
-    if 'data-theme="dim"' not in html:
-        html, n_html = re.subn(r"<html([^>]*?)>", r'<html\1 data-theme="dim">', html, count=1)
+    # The theme is chosen at RUNTIME: the layout asks Theme.current/0 (which
+    # reads THEME) instead of hardcoding a name, so switching themes needs no
+    # rebuild.
+    theme_attr = "data-theme={" + camel + "Web.Theme.current()}"
+
+    if "data-theme={" not in html:
+        html, n_html = re.subn(
+            r"<html([^>]*?)>",
+            lambda m: "<html" + m.group(1) + " " + theme_attr + ">",
+            html,
+            count=1,
+        )
         if n_html == 0:
-            warnings.append('root.html.heex: could not find <html> — set data-theme="dim" by hand')
+            warnings.append(
+                "root.html.heex: could not find <html> — set " + theme_attr + " by hand"
+            )
 
     html = html.replace(' data-theme-source="system"', "").replace(' data-theme-source="user"', "")
 
     if html != original:
         with open(root_html, "w", encoding="utf-8") as fh:
             fh.write(html)
-        print('      root.html.heex: data-theme="dim" · inline switcher removed')
+        print("      root.html.heex: " + theme_attr + " · inline switcher removed")
 else:
     warnings.append(f"{root_html} does not exist — did the scaffold run correctly?")
 
@@ -351,7 +393,7 @@ cat <<EOF
 Done. These steps remain (they need network and a database):
 
   cd $TARGET
-  cp .env.example .env && \$EDITOR .env        # SECRET_KEY_BASE, DATABASE_URL, salts
+  cp .env.example .env && \$EDITOR .env        # SECRET_KEY_BASE, DATABASE_URL, salts (THEME optional)
   mix deps.get
   mix ecto.create
   mix compile --warnings-as-errors

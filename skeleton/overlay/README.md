@@ -2,10 +2,11 @@
 
 <one sentence: what {{App}} is and who runs it>
 
-Born from the family's portable layer: Phoenix with Postgres, a single `dim`
-theme, and a container that migrates before it serves. The sections below are
-what the skeleton already brings — replace the ones that stop being true as
-{{App}} grows, and delete this paragraph once they are all {{App}}'s own.
+Born from the family's portable layer: Phoenix with Postgres, a daisyUI theme
+chosen at runtime by `THEME`, and a container that migrates before it serves.
+The sections below are what the skeleton already brings — replace the ones that
+stop being true as {{App}} grows, and delete this paragraph once they are all
+{{App}}'s own.
 
 ## What it is
 
@@ -18,7 +19,7 @@ what the skeleton already brings — replace the ones that stop being true as
 | Elixir / Erlang OTP | `.tool-versions` |
 | Phoenix / LiveView | `mix.exs` |
 | Postgres (Ecto, UUID primary keys) | `mix.exs` |
-| UI | daisyUI, one theme `dim --default` (`DESIGN.md`) |
+| UI | daisyUI, theme chosen with `THEME` (default `dim`; `DESIGN.md` §C2) |
 | Runtime | Mix release in Docker (`Dockerfile`) |
 
 ## Local development
@@ -41,7 +42,7 @@ Two blocks matter:
 - **Required in production** — `DATABASE_URL`, `SECRET_KEY_BASE`, `PHX_HOST`,
   `SESSION_SIGNING_SALT`, `SESSION_ENCRYPTION_SALT`: the boot raises without
   them, by design.
-- **Optional commons** — `PORT`, `PHX_SCHEME`, `PHX_PORT`, `ECTO_SSL`,
+- **Optional commons** — `PORT`, `PHX_SCHEME`, `PHX_PORT`, `THEME`, `ECTO_SSL`,
   `SESSION_MAX_AGE_SECONDS` and the rest, documented in the same file.
 
 <{{App}}'s own variables are declared in `config/runtime.exs` (read at runtime
