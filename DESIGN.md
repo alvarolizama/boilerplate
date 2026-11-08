@@ -575,7 +575,10 @@ declares its sections and options in **Custom**; the mechanics are these.
   (`label for="app-drawer"`) that opens the drawer; at `≥ lg`, the same button
   in the same position collapses/expands the sidebar
   (`label for="sidebar-collapse"`). **Never two controls**: the sidebar carries
-  no chevron of its own.
+  no chevron of its own. Below `< lg` the bar is **`sticky top-0 z-30
+  lg:static`**: there the document scrolls, and a static bar takes the only
+  toggle off screen with long content — the hamburger must stay reachable
+  (§C12.5.4).
 - **Mobile (`< lg`):** the sidebar lives in the drawer (`drawer-side` +
   `drawer-overlay`); closing = overlay or navigating. The drawer is not
   persisted.
@@ -587,9 +590,12 @@ declares its sections and options in **Custom**; the mechanics are these.
   used: a `fixed` one covers the page title. In the rail the user menu opens to
   the right and `.drawer-side` loses its clipping (`overflow: visible`) — the
   scroll is carried by the aside's inner `<nav>`.
-- Sidebar `w-60 shrink-0 border-r border-base-300 bg-base-200/50 flex flex-col`.
+- Sidebar `w-60 shrink-0 border-r border-base-300 bg-base-200 lg:bg-base-200/50
+  flex flex-col` — **opaque below `lg`** (§C12.5.4), translucent only where the
+  aside is sticky over the `base-100` root.
   Density: header `p-3`, search `p-3`, nav `flex-1 overflow-y-auto p-2 flex
-  flex-col gap-4`, footer `p-3 border-t`.
+  flex-col gap-4`, footer `p-3 border-t` with
+  `max-lg:pb-[calc(0.75rem+env(safe-area-inset-bottom))]` (§C12.5.4).
 
 ### C12.2 Sidebar anatomy
 
@@ -602,7 +608,9 @@ declares its sections and options in **Custom**; the mechanics are these.
 
 ### C12.3 Navigation and menus
 
-- **`<.nav_link>`**: `btn btn-sm w-full justify-between font-normal`; inactive
+- **`<.nav_link>`**: `btn lg:btn-sm w-full justify-between font-normal`
+  (40px tap targets below `lg` — the drawer is the primary navigation there;
+  32px `btn-sm` intact in the desktop rail); inactive
   `btn-ghost text-base-content/80`; **active `bg-primary/15 text-primary
   font-medium hover:bg-primary/20` + `aria-current="page"`**. Do **not** use
   `btn-primary btn-soft` for the active one: it mixes only 8% of the color with
@@ -650,6 +658,19 @@ padding.
    `.drawer-side` (§C12.1).
 3. **The one that scrolls is `main`** (`flex-1 min-h-0 overflow-y-auto`), not the
    document. The content bar (`h-14 shrink-0`) and the sidebar stay fixed.
+4. **The drawer panel is OPAQUE below `lg`: `bg-base-200 lg:bg-base-200/50`.**
+   Below `lg` the `.drawer-side` is a `position: fixed` overlay — nothing
+   opaque sits behind the aside, so an alpha-only background composites with
+   the page content and the text reads through (measured with the compiled
+   `dim` theme at 390px: ΔL ≈ 11 against the panel; at `≥ lg` the aside is
+   sticky over the `base-100` root and the same `…/50` composites to ΔL ≈ 1.4 —
+   invisible). The opaque stop and the sticky stop share the `lg` breakpoint on
+   purpose: that is exactly where the panel stops floating. Verify by computed
+   style, not by eye — at 390px
+   `getComputedStyle(aside).backgroundColor` carries NO alpha; at 1280px it
+   keeps `/ 0.5`. A markup test asserts the tokens (`bg-base-200` present,
+   bare `bg-base-200/50` absent); it is a lock on the markup, not on the
+   cascade.
 
 How it is verified (it is measured, not looked at) — with the **compiled** CSS
 and long content, at 1440×900 and 1280×800, expanded and in rail mode:
