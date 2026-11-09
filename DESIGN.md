@@ -412,9 +412,12 @@ person picks from the list **or** types any value.
 
 ### C8.3 Single combobox (1 value, with search)
 
-The reference implementation is Sebka's timezone picker (`OnboardingLive` +
-`SebkaWeb.Timezones`). Assigns: `<kind>_query` (typed text), `<kind>_open`
-(bool), `<kind>_active` (keyboard cursor), `selected_<kind>` (chosen value).
+The reference implementations are Sebka's timezone picker (`OnboardingLive` +
+`SebkaWeb.Timezones`, LiveView-local state) and — when the same picker is
+reused across surfaces — a **LiveComponent** (`SebkaWeb.Sharing.RecipientPicker`):
+one state machine, N hosts, the host only handles the pick. Assigns:
+`<kind>_query` (typed text), `<kind>_open` (bool), `<kind>_active` (keyboard
+cursor), `selected_<kind>` (chosen value).
 
 The flow: **closed until focus; filter per keystroke; arrows navigate; Enter or
 click picks; the pick completes the box and CLOSES; Escape and click-away
@@ -498,6 +501,15 @@ end
 5. **Escape closes and clears the query without touching the picked value.**
 6. Cap the rendered rows (~60) with a "N more — refine the search" hint, and
    default the keyboard cursor (highlighted row) to the first suggestion.
+7. **The active row must be visible to screen readers, not just styled.** The
+   input carries `aria-autocomplete="list"` and `aria-activedescendant` pointing
+   at the active row's DOM id; the row carries its own `id`. A highlight class
+   alone (`bg-base-200`) is invisible to assistive tech.
+8. **A picker inside a `<.modal>` fights the modal's global Escape.** The
+   modal binds `phx-window-keydown` + `phx-key="escape"` — one Escape closes
+   the whole modal, not the dropdown. While the picker is open the host passes
+   `close_on_escape={false}` to the modal and re-enables it when the picker
+   reports it closed; Escape then closes ONLY the dropdown.
 
 ### C8.4 Multi combobox (N values, with search)
 
@@ -505,6 +517,11 @@ Same as the single one, but the pick does **NOT** close and it **accumulates**
 ids (`current_<kind>_ids`); the chosen ones are shown as **chips** below the
 input (each chip with its own `<button>`/remove icon) and a `✓` on the active
 row.
+
+When each pick triggers a server side effect (a share grant, a membership),
+there are NO chips: the pick applies immediately and the accumulation surface
+is the result list below (the grants list) — two accumulation surfaces always
+diverge. `SebkaWeb.Sharing.RecipientPicker` is that case.
 
 ```heex
 <div :if={@current_owner_ids != []} class="flex flex-wrap gap-1 mt-2">
