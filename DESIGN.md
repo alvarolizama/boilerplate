@@ -412,25 +412,92 @@ person picks from the list **or** types any value.
 
 ### C8.3 Single combobox (1 value, with search)
 
-Assigns: `<kind>_search` (text), `<kind>_open` (bool), `current_<kind>_id`
-(chosen). The pick **mirrors the label and closes**.
+The reference implementation is Sebka's timezone picker (`OnboardingLive` +
+`SebkaWeb.Timezones`). Assigns: `<kind>_query` (typed text), `<kind>_open`
+(bool), `<kind>_active` (keyboard cursor), `selected_<kind>` (chosen value).
+
+The flow: **closed until focus; filter per keystroke; arrows navigate; Enter or
+click picks; the pick completes the box and CLOSES; Escape and click-away
+close.**
 
 ```heex
-<div class="relative" phx-click-away="close_pickers">
-  <input type="text" name="thing[owner_id_display]" value={@owner_search}
-    phx-focus="open_picker" phx-value-picker="owner"
-    phx-change="owner_search" phx-debounce="200"
-    autocomplete="off" placeholder="Search…" class="input input-sm w-full" />
-  <div :if={@owner_open and @owner_results != []}
-       class="absolute z-50 left-0 right-0 mt-1 bg-base-100 border border-base-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-    <button :for={o <- @owner_results} type="button"
-      phx-click="select_owner_item" phx-value-id={o.id} phx-value-label={o.label}
-      class="block w-full text-left px-3 py-2 hover:bg-primary/10 transition-colors">
-      {o.label}
-    </button>
-  </div>
+<div class="relative">
+  <input type="text" id="<kind>-search" name="<kind>_query" role="combobox"
+    aria-controls="<kind>-list" aria-expanded={to_string(@<kind>_open)}
+    value={@<kind>_query} placeholder="Search…"
+    phx-focus="open_<kind>" phx-keyup="<kind>_search" phx-keydown="<kind>_key"
+    phx-hook=".<Kind>Autocomplete" autocomplete="off"
+    class="input input-sm w-full" />
+  <script :type={Phoenix.LiveView.ColocatedHook} name=".<Kind>Autocomplete">
+    export default {
+      mounted() {
+        // LiveView never patches the value of a typed-into input: the server
+        // echoes the pick and the hook completes the box.
+        this.handleEvent("<kind>-selected", ({ value }) => { this.el.value = value; });
+      },
+    };
+  </script>
+
+  <%= if @<kind>_open do %>
+    <%!-- Click-away catcher (the drawer-overlay pattern). --%>
+    <div class="fixed inset-0 z-20" phx-click="close_<kind>" aria-hidden="true"></div>
+
+    <ul id="<kind>-list" role="listbox" aria-label="Options"
+        class="absolute z-30 mt-1 w-full menu menu-sm bg-base-100 border border-base-300
+               rounded-box shadow-lg max-h-48 overflow-y-auto">
+      <li :for={{item, i} <- @<kind>_visible} role="option"
+          aria-selected={to_string(item.id == @selected)}
+          class={i == @<kind>_active && "bg-base-200"}>
+        <button type="button" phx-click="pick_<kind>" phx-value-id={item.id}>
+          <.icon name={item.id == @selected && "hero-check" || "hero-map-pin"}
+                 class="size-4 opacity-60" />
+          {item.label}
+        </button>
+      </li>
+    </ul>
+  <% end %>
 </div>
 ```
+
+Server side — filter rides `phx-keyup` (the payload carries the input's
+`value` per keystroke), nav keys ride `phx-keydown`, and the pick is merged
+**server-side** into the submit params:
+
+```elixir
+def handle_event("<kind>_search", %{"value" => query}, socket), do: …   # filter + reset cursor
+def handle_event("<kind>_key", %{"key" => "Enter"}, socket), do: …      # pick active, close
+def handle_event("pick_<kind>", %{"id" => id}, socket), do: …           # same, from a click
+
+def handle_event("submit", %{"thing" => params}, socket) do
+  # merge the picked value from socket assigns — never from the DOM
+  params = Map.put(params, "owner_id", socket.assigns.selected_owner_id)
+  …
+end
+```
+
+### Combobox hard rules (they come from real bugs)
+
+1. **`phx-change` never fires on a standalone (form-less) input — with or
+   without `name`.** The suite stays green anyway (`render_change` injects the
+   event straight into the server, skipping the DOM): the arbiter is the
+   **server log** — a live websocket with no `HANDLE EVENT` line means the
+   binding never fires. For type-to-filter bind **`phx-keyup`** (its payload
+   carries the input's `value` per keystroke); nav keys ride
+   **`phx-keydown`**. Inside a real `<form>`, `phx-change` +
+   `phx-debounce` (200 search · 300 autocomplete) remains the pattern.
+2. **LiveView never patches the `value` of an input the user typed into —
+   including hidden inputs.** A pick stored in socket assigns must be merged
+   into the submit params server-side, and any visible box that must
+   "complete" after a server pick needs `push_event` + the colocated hook
+   (`handleEvent` sets `this.el.value`).
+3. **Single pick = mirror the label + close.** **Multi pick = accumulate + stay
+   open** (C8.4).
+4. **Click-away = a fixed full-screen overlay catcher** behind the dropdown
+   (`fixed inset-0 z-20` + `phx-click="close_…"`, list at `z-30`) — the
+   drawer-overlay pattern. Core LiveView has **no `phx-click-away`**.
+5. **Escape closes and clears the query without touching the picked value.**
+6. Cap the rendered rows (~60) with a "N more — refine the search" hint, and
+   default the keyboard cursor (highlighted row) to the first suggestion.
 
 ### C8.4 Multi combobox (N values, with search)
 
@@ -463,21 +530,6 @@ For short lists (permissions): `badge` buttons that toggle. State: selected =
   {m.name}
 </button>
 ```
-
-### Combobox hard rules (they come from real bugs)
-
-1. **The input ALWAYS carries a name** (`name="…"`). Without `name`, inside a
-   form, LiveView serializes an empty payload on `phx-change` and the search is
-   wiped on every keystroke.
-2. The search handler accepts **both shapes** of the payload
-   (`%{"value" => q}` and the nested `%{ns: %{field => q}}`) — resolve with
-   clauses.
-3. **Single pick = mirror the label + close.** **Multi pick = accumulate + stay
-   open.**
-4. **`phx-click-away` on the wrapper** + `Escape` at form level. Never leave the
-   dropdown open as a "zombie".
-5. Do **not** use `phx-keyup` to filter (it reopens on Escape release).
-   `phx-change` + `phx-debounce` (`200` search · `300` autocomplete).
 
 ## C9. Charts
 
