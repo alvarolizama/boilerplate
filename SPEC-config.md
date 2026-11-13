@@ -54,7 +54,32 @@ is never ported into the skeleton.
 | `DNS_CLUSTER_QUERY` | unset | distributed Erlang clustering |
 | `DISABLE_FORCE_SSL` | build arg | turns `force_ssl` off (**compile-time**, see `SPEC-docker.md`) |
 | `SKIP_MIGRATIONS` | unset | the entrypoint skips setup |
-| `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` / `_ALLOWED_DOMAINS` / `_REDIRECT_URI` | unset | sign-in with Google |
+| `SKIP_DB_CREATE` | unset | skips `storage_up/1` for a preprovisioned DB or a role without CREATEDB |
+| `SETUP_TIMEOUT_SECONDS` | `120` | outer bound for create + migrate + seed |
+| `TRUST_PROXY` | off | trusts sanitized `X-Forwarded-*` only behind an isolated proxy |
+| `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` / `_ALLOWED_DOMAINS` / `_REDIRECT_URI` | unset | sign-in with Google (allowlist parsing below) |
+
+### Google OAuth: the domain allowlist
+
+`GOOGLE_OAUTH_ALLOWED_DOMAINS` gates self-registration for **Mode 2** auth
+(`SPEC-auth.md` §Mode 2). Its parsing is fixed, so every app accepts the same
+value shape:
+
+1. Unset (or empty after parsing) → the allowlist is `nil`/`[]`: nobody
+   self-registers through Google; existing accounts can still sign in.
+2. Set → normalize each entry to lowercase, split on `,` and **trim** whitespace
+   around each entry (`Example.COM, Other.ORG` becomes `example.com` /
+   `other.org`).
+3. An entry that is **blank after trimming** (`a.com,,b.com`, a trailing comma)
+   or not a bare DNS name with a dot (`example`, `exa_mple.com`, `example.com.`)
+   is a malformed list: the boot **raises** — a silent hole in an allowlist is
+   worse than a failed deploy.
+4. Entries are bare domains (`example.com`, no `@`, no scheme, no path).
+
+With no `client_id` the whole block is off and the allowlist is never read.
+
+The variable and its comment live in `.env.example`; `config/runtime.exs`
+implements the parsing above.
 
 ### The theme: `THEME`
 
@@ -86,7 +111,10 @@ per pool connection, so the deprecated shape fills the boot log of every deploy.
 
 Ready-to-copy template: **`skeleton/overlay/.env.example`** — every core
 variable with its comment and its safe default, grouped in core / session /
-optional.
+optional. In dev the shell loads it through **direnv**: `cp .env.example .env`,
+fill the values, `direnv allow` (the `.envrc` does the loading). Never `export`
+a secret by hand or paste it unquoted into a command line — the file is the only
+place the values live locally.
 
 ## The app's own variables
 
@@ -103,7 +131,7 @@ Typical patterns:
 | Upload directory | `UPLOADS_DIR` | requires a persistent volume mounted at that path |
 | Inference endpoint (OpenAI-compatible) | `*_INFERENCE_API_URL` / `_API_KEY` | used by embeddings, chat and background workers |
 | Destructive reset flag | `*_RESET` | **destructive**: drops the schema on every boot while it is set — keep it out of production |
-| First-admin bootstrap | `*_ADMIN_PASSWORD` / `_ADMIN_EMAIL` | opt-in only: without it the boot creates nobody and the first account comes from the first-run screen |
+| First-admin bootstrap | `*_ADMIN_PASSWORD` (required), `*_ADMIN_EMAIL` (optional app default) | opt-in seed under the `Release.setup/0` advisory lock, idempotent (`get_by` + `insert`); without the password the first account comes from `/onboarding`, also under an advisory lock. Never an open sign-up or a committed password |
 | Proxy/gateway tuning | circuit breaker, receive timeout, slow-routing thresholds | only meaningful for an app that proxies traffic |
 
 ## Session and cookies (the canonical block)
@@ -113,11 +141,12 @@ Reference: `lib/<app>_web/endpoint.ex`.
 | Piece | Canonical value | Note |
 |---|---|---|
 | `key` | `_<app>_key` | one cookie per app |
+| session reader | `<App>Web.Endpoint.session_options/0` | `config :<app>, :session` is set in `runtime.exs`; the endpoint's local session plug and both socket `connect_info`s use the reader, never a module attribute |
 | `signing_salt` / `encryption_salt` | from env, **two different ones** | in prod they are required; dev fallbacks are distinct values |
 | `same_site` / `http_only` | `Lax` / `true` | |
 | `renew: true` | sliding: the cookie is re-issued on every authenticated request | without it the lifetime is absolute |
 | `max_age` | `SESSION_MAX_AGE_SECONDS` (1 year) | |
-| `secure` | per `SESSION_COOKIE_SECURE` | unset = Plug decides per request |
+| `secure` | `SESSION_COOKIE_SECURE`; default follows `PHX_SCHEME` in prod | prod HTTPS = `true`; prod/local HTTP = `false`; HTTPS behind proxy needs `PHX_SCHEME=https` |
 | socket `connect_info` | `session` + `peer_data: true` + `user_agent: true` | on **both** the websocket and the longpoll entry |
 
 **Symptoms to check in a live app** (diagnosis, do not port blind): the same

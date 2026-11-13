@@ -2,18 +2,37 @@
 #
 # bootstrap.sh — materializes the family's portable layer into a new app.
 #
-#   bash skeleton/bootstrap.sh /path/to/<app> [--app <name>]
+#   bash skeleton/bootstrap.sh <target> [--app <name>]
 #
 # What it does:
-#   1. `mix phx.new` into a scratch dir (--app <name> --binary-id --no-install)
-#   2. rsync of the scaffold into the target (keeps the repo's README.md and .gitignore)
-#   3. copies `skeleton/overlay/**` replacing {{app}} / {{App}} / {{APP}}
-#      (its README.md is skipped when the target already has one)
-#   4. merges the family entries into .gitignore
-#   5. applies the family's themes (app.css + `data-theme` from THEME in root.html.heex)
+#   1. gates the phx.new scheme (1.8.x only) and runs `mix phx.new` into a
+#      scratch dir (--app <name> --binary-id --no-install)
+#   2. materializes the FINAL tree in a staging dir inside the same scratch:
+#      scaffold + overlay ({{app}} / {{App}} / {{APP}} replaced) + themes +
+#      the /health and /ready routes — the target is not touched yet
+#   3. validates the staged tree: no unknown {{token}} left in the overlay
+#      files, the compiled theme set in app.css, data-theme in
+#      root.html.heex, favicon.svg in static_paths, BOTH probe routes —
+#      any structural failure exits nonzero BEFORE a single write lands
+#      in the target
+#   4. refuses collisions with the target's existing files (only README.md,
+#      .gitignore and .git are deliberate exceptions — they are preserved)
+#      and then copies once; files identical to the staged tree are not
+#      collisions, so a run that died mid-copy is retried as-is. There is
+#      no FORCE flag: remove the conflicting files by hand or abort.
+#   5. merges the family entries and /.env into .gitignore — the target's
+#      own is kept and extended; when the target has none, the scaffold's
+#      is restored (it is NOT dropped anymore)
+#   6. gates the ignore rules: git check-ignore must ignore .env, deps/<app>
+#      and _build/<app>, and must NOT ignore .env.example (it stays tracked)
 #
 # It does not: `mix deps.get`, create the database, or the first commit. The
 # remaining steps are printed at the end. Contract and traps: BOOTSTRAP.md.
+#
+# Exit codes: 2 usage or bad --app · 3 the target is already an Elixir
+# project · 4 a collision with existing files (nothing was written) ·
+# 5 structural failure (unsupported phx.new, failed validation or the
+# ignore gate) · any other nonzero: a tool itself failed.
 
 set -euo pipefail
 
@@ -23,58 +42,69 @@ usage() {
   cat <<'EOF'
 Usage: bootstrap.sh <target> [--app <name>]
 
-  <target>      the app's directory (created if it does not exist)
-  --app <name>  OTP app name (default: the basename of the target)
+  <target>        the app's directory (created if it does not exist)
+  --app <name>    OTP app name (default: the basename of the target)
+
+Exit codes: 2 usage · 3 already an Elixir project · 4 collision with
+existing files (nothing written) · 5 structural failure.
 EOF
+}
+
+die() { # die <code> <message>
+  echo "error: $2" >&2
+  exit "$1"
 }
 
 TARGET=""
 APP=""
+APP_GIVEN=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --app)
-      APP="${2:-}"
+      [ $# -ge 2 ] || die 2 "--app requires a value"
+      [ "$APP_GIVEN" -eq 0 ] || die 2 "--app given twice ('$APP' and '$2')"
+      APP="$2"
+      APP_GIVEN=1
       shift 2
+      ;;
+    --app=*)
+      [ "$APP_GIVEN" -eq 0 ] || die 2 "--app given twice"
+      APP="${1#*=}"
+      APP_GIVEN=1
+      shift
       ;;
     -h | --help)
       usage
       exit 0
       ;;
+    -*)
+      die 2 "unknown option: $1"
+      ;;
     *)
+      [ -z "$TARGET" ] || die 2 "more than one target given ('$TARGET' and '$1')"
       TARGET="$1"
       shift
       ;;
   esac
 done
 
-[ -n "$TARGET" ] || {
-  usage
-  exit 2
-}
+[ -n "$TARGET" ] || { usage >&2; die 2 "missing <target>"; }
 
 APP="${APP:-$(basename "$TARGET")}"
 
-case "$APP" in
-  [a-z]*) ;;
-  *)
-    echo "error: invalid app name: '$APP' (lowercase letters, digits and _ ; must start with a letter)" >&2
-    exit 2
-    ;;
-esac
-
 if ! printf '%s' "$APP" | grep -qE '^[a-z][a-z0-9_]*$'; then
-  echo "error: invalid app name: '$APP' (lowercase letters, digits and _ ; must start with a letter)" >&2
-  exit 2
+  die 2 "invalid app name: '$APP' (lowercase letters, digits and _ ; must start with a letter)"
 fi
 
 CAMEL="$(printf '%s' "$APP" | python3 -c 'import sys; print("".join(p.capitalize() for p in sys.stdin.read().split("_")))')"
 UPPER="$(printf '%s' "$APP" | tr '[:lower:]' '[:upper:]')"
 
-[ -d "$OVERLAY" ] || {
-  echo "error: cannot find the overlay at $OVERLAY" >&2
-  exit 2
-}
+[ -d "$OVERLAY" ] || die 2 "cannot find the overlay at $OVERLAY"
+
+if [ -e "$TARGET" ] && [ ! -d "$TARGET" ]; then
+  die 2 "$TARGET exists and is not a directory"
+fi
 
 if [ -f "$TARGET/mix.exs" ]; then
   echo "error: $TARGET is already an Elixir project (it has a mix.exs) — aborting" >&2
@@ -86,32 +116,82 @@ TARGET="$(cd "$TARGET" && pwd)"
 
 SCRATCH="$(mktemp -d)"
 trap 'rm -rf "$SCRATCH"' EXIT
+STAGE="$SCRATCH/stage"
+mkdir -p "$STAGE"
 
-echo "[1/6] scaffold: mix phx.new $APP (binary_id, no install)"
+echo "[1/8] scaffold: mix phx.new $APP (binary_id, no install)"
+PHX_VERSION="$(mix phx.new --version 2>/dev/null || true)"
+PHX_MM="$(printf '%s' "$PHX_VERSION" | sed -nE 's/.*v([0-9]+\.[0-9]+)\.[0-9]+.*/\1/p' || true)"
+[ -n "$PHX_MM" ] || die 5 "cannot determine the phx.new installer version ('$PHX_VERSION') — the scaffold's schema cannot be verified"
+[ "$PHX_MM" = "1.8" ] || die 5 "unsupported phx.new scheme: $PHX_VERSION (verified: 1.8.x) — update bootstrap.sh before generating"
+echo "      installer: $PHX_VERSION (supported scheme: 1.8.x)"
+
 # --no-install is explicit on purpose: phx.new PROMPTS to fetch deps and
 # install assets, and a non-interactive run that answers "yes" (or a changed
 # default) would leave deps/ and assets/node_modules/ in the scratch dir for
-# the rsync below to copy into the target. The scaffold must bring code only.
-mix phx.new "$SCRATCH/$APP" --app "$APP" --binary-id --no-version-check --no-install < /dev/null > /dev/null
+# the staging copy below to carry into the target. The scaffold must bring
+# code only.
+mix phx.new "$SCRATCH/gen/$APP" --app "$APP" --binary-id --no-version-check --no-install < /dev/null > /dev/null
 
-echo "[2/6] copying the scaffold into $TARGET (the repo's README.md and .gitignore are kept)"
-rsync -a --exclude .git --exclude README.md --exclude .gitignore "$SCRATCH/$APP/" "$TARGET/"
+echo "[2/8] staging the scaffold (nothing is written to $TARGET yet)"
+rsync -a --exclude .git --exclude README.md "$SCRATCH/gen/$APP/" "$STAGE/"
+# The scaffold's .gitignore is staged too: it lands in the target only when
+# the target has none (an existing one is kept and merged into instead).
+cp "$SCRATCH/gen/$APP/.gitignore" "$STAGE/.gitignore"
 
-echo "[3/6] portable overlay ($APP / $CAMEL / $UPPER)"
-python3 - "$OVERLAY" "$TARGET" "$APP" "$CAMEL" "$UPPER" <<'PY'
+# phx.new writes a RANDOM secret_key_base and signing_salt into config/*.exs
+# on every run. Left as-is, a retry would never match the target's copies and
+# the collision check would refuse it. They are committed placeholders anyway
+# (prod reads the real values from the environment), so the stage pins values
+# derived from the app name: deterministic per app, distinct across apps.
+python3 - "$STAGE" "$APP" <<'PY'
+import hashlib
 import os
+import re
 import sys
 
-overlay, target, app, camel, upper = sys.argv[1:6]
+stage, app = sys.argv[1:3]
+pinned = 0
+for name in sorted(os.listdir(os.path.join(stage, "config"))):
+    if not name.endswith(".exs"):
+        continue
+    path = os.path.join(stage, "config", name)
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    key = hashlib.sha256(f"{app}:{name}:secret_key_base".encode()).hexdigest()
+    salt = hashlib.sha256(f"{app}:{name}:signing_salt".encode()).hexdigest()[:8]
+    new = re.sub(r'((?:secret_key_base|signing_salt):\s*")[^"]+(")',
+                 lambda m: m.group(1) + (key if "secret_key_base" in m.group(1) else salt) + m.group(2),
+                 text)
+    if new != text:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(new)
+        pinned += 1
+print(f"      secrets: pinned deterministic dev values in {pinned} config file(s)")
+PY
+
+echo "[3/8] portable overlay ($APP / $CAMEL / $UPPER)"
+python3 - "$OVERLAY" "$STAGE" "$TARGET" "$APP" "$CAMEL" "$UPPER" <<'PY'
+import os
+import re
+import sys
+
+overlay, stage, target, app, camel, upper = sys.argv[1:7]
 subs = [("{{app}}", app), ("{{App}}", camel), ("{{APP}}", upper)]
+
+# Restrictive: a single bare identifier. The scaffold's legitimate HEEx
+# (`:for={{id, msg} <- @streams.messages}`) carries a comma and a `<-`, so it
+# never matches; an unknown token like `{{appp}}` does.
+unknown_token = re.compile(r"\{\{[A-Za-z_][A-Za-z0-9_]*\}\}")
 
 written = 0
 written_paths = []
 kept = []
+token_hits = []
 
-# The app's repo keeps its own README.md: the scaffold's is already excluded by
-# the rsync, so the overlay's README only lands when the app has none. An app
-# born into an existing repo is never clobbered.
+# The app's repo keeps its own README.md: the scaffold's is already excluded,
+# so the overlay's README only lands when the app has none. An app born into
+# an existing repo is never clobbered.
 keep_readme = os.path.isfile(os.path.join(target, "README.md"))
 
 for root, _dirs, files in os.walk(overlay):
@@ -125,7 +205,7 @@ for root, _dirs, files in os.walk(overlay):
             kept.append(rel)
             continue
 
-        dst = os.path.join(target, rel)
+        dst = os.path.join(stage, rel)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
 
         with open(src, encoding="utf-8") as fh:
@@ -141,65 +221,44 @@ for root, _dirs, files in os.walk(overlay):
         written_paths.append(dst)
 
 if written == 0:
-    sys.exit("error: empty overlay")
+    sys.exit(5)
 
 print(f"      overlay files: {written}")
 if kept:
     print(f"      kept (already in the target): {', '.join(kept)}")
 
-# The check looks ONLY at the overlay files: the scaffold's `{{…}}` are
-# legitimate HEEx syntax (`:for={{id, msg} <- @streams.messages}`).
+# Two checks over exactly the overlay files: the family's own placeholders
+# must be gone, and no UNKNOWN {{token}} may survive either.
 leftovers = []
 for path in written_paths:
     with open(path, encoding="utf-8") as fh:
         content = fh.read()
+    rel = os.path.relpath(path, stage)
     for needle, _value in subs:
         if needle in content:
-            leftovers.append(f"{os.path.relpath(path, target)} ({needle})")
+            leftovers.append(f"{rel} ({needle})")
+    for token in sorted(set(unknown_token.findall(content))):
+        token_hits.append(f"{rel} ({token})")
 
+problems = []
 if leftovers:
-    sys.exit("error: unreplaced placeholders left in: " + ", ".join(sorted(leftovers)))
+    problems.append("unreplaced placeholders left in: " + ", ".join(sorted(leftovers)))
+if token_hits:
+    problems.append("unknown {{tokens}} left in: " + ", ".join(token_hits))
+if problems:
+    for problem in problems:
+        print(f"      STRUCTURE: {problem}")
+    sys.exit(5)
 PY
 
-echo "[4/6] family .gitignore"
-python3 - "$TARGET/.gitignore" <<'PY'
-import os
-import sys
-
-path = sys.argv[1]
-entries = [
-    ".riel/",
-    "/priv/static/uploads/",
-    "erl_crash.dump",
-]
-
-existing = ""
-if os.path.isfile(path):
-    with open(path, encoding="utf-8") as fh:
-        existing = fh.read()
-
-lines = existing.splitlines()
-missing = [e for e in entries if e not in lines]
-
-if missing:
-    with open(path, "a", encoding="utf-8") as fh:
-        if existing and not existing.endswith("\n"):
-            fh.write("\n")
-        fh.write("\n# Family (boilerplate)\n")
-        for entry in missing:
-            fh.write(entry + "\n")
-
-print(f"      added: {', '.join(missing) if missing else 'nothing (already there)'}")
-PY
-
-echo "[5/6] themes (THEME, default dim)"
-python3 - "$TARGET" "$APP" "$CAMEL" <<'PY'
+echo "[4/8] themes (THEME, default dim)"
+python3 - "$STAGE" "$APP" "$CAMEL" <<'PY'
 import os
 import re
 import sys
 
-target, app, camel = sys.argv[1:4]
-warnings = []
+stage, app, camel = sys.argv[1:4]
+errors = []
 
 # The family's compiled set: `dim` is the default and the rest are selectable at
 # runtime with THEME (Theme.current/0 validates against the same list).
@@ -241,7 +300,7 @@ def strip_block(text, marker):
         removed += 1
 
 
-css_path = os.path.join(target, "assets/css/app.css")
+css_path = os.path.join(stage, "assets/css/app.css")
 if os.path.isfile(css_path):
     with open(css_path, encoding="utf-8") as fh:
         css = fh.read()
@@ -281,11 +340,11 @@ if os.path.isfile(css_path):
             f"{n_plugin} · dark variants removed: {n_variant}"
         )
     if n_theme == 0:
-        warnings.append("assets/css/app.css: could not find `themes: false` — apply the theme by hand (§C2)")
+        errors.append("assets/css/app.css: could not find `themes: false` — the phx.new schema changed; update bootstrap.sh (§C2)")
 else:
-    warnings.append("assets/css/app.css does not exist — did the scaffold run correctly?")
+    errors.append("assets/css/app.css does not exist — did the scaffold run correctly?")
 
-root_html = os.path.join(target, f"lib/{app}_web/components/layouts/root.html.heex")
+root_html = os.path.join(stage, f"lib/{app}_web/components/layouts/root.html.heex")
 if os.path.isfile(root_html):
     with open(root_html, encoding="utf-8") as fh:
         html = fh.read()
@@ -316,9 +375,9 @@ if os.path.isfile(root_html):
             count=1,
         )
         if n_html == 0:
-            warnings.append(
-                "root.html.heex: could not find <html> — set " + theme_attr + " by hand"
-            )
+            errors.append("root.html.heex: could not find <html> — the phx.new schema changed; update bootstrap.sh")
+    elif theme_attr not in html:
+        errors.append("root.html.heex: data-theme is not " + theme_attr + " — the phx.new schema changed; update bootstrap.sh")
 
     html = html.replace(' data-theme-source="system"', "").replace(' data-theme-source="user"', "")
 
@@ -327,9 +386,9 @@ if os.path.isfile(root_html):
             fh.write(html)
         print("      root.html.heex: " + theme_attr + " · inline switcher removed")
 else:
-    warnings.append(f"{root_html} does not exist — did the scaffold run correctly?")
+    errors.append(f"lib/{app}_web/components/layouts/root.html.heex does not exist — did the scaffold run correctly?")
 
-web_ex = os.path.join(target, f"lib/{app}_web.ex")
+web_ex = os.path.join(stage, f"lib/{app}_web.ex")
 if os.path.isfile(web_ex):
     with open(web_ex, encoding="utf-8") as fh:
         text = fh.read()
@@ -341,42 +400,68 @@ if os.path.isfile(web_ex):
         if "favicon.svg" in fh.read():
             print("      web.ex: favicon.svg in static_paths")
         else:
-            warnings.append("web.ex: could not add favicon.svg to static_paths — do it by hand")
+            errors.append("web.ex: could not add favicon.svg to static_paths — the phx.new schema changed; update bootstrap.sh")
+else:
+    errors.append(f"lib/{app}_web.ex does not exist — did the scaffold run correctly?")
 
-for warning in warnings:
-    print(f"      WARNING: {warning}")
+if errors:
+    for error in errors:
+        print(f"      STRUCTURE: {error}")
+    sys.exit(5)
 PY
 
-echo "[6/6] /health route"
-python3 - "$TARGET" "$APP" "$CAMEL" <<'PY'
+echo "[5/8] probe routes (/health + /ready)"
+python3 - "$STAGE" "$APP" "$CAMEL" <<'PY'
 import os
 import sys
 
-target, app, camel = sys.argv[1:4]
-router = os.path.join(target, f"lib/{app}_web/router.ex")
+stage, app, camel = sys.argv[1:4]
+router = os.path.join(stage, f"lib/{app}_web/router.ex")
 
 if not os.path.isfile(router):
-    print(f"      WARNING: {router} does not exist — add `get \"/health\", HealthController, :show` by hand")
-    sys.exit(0)
+    print(f"      STRUCTURE: lib/{app}_web/router.ex does not exist — did the scaffold run correctly?")
+    sys.exit(5)
 
 with open(router, encoding="utf-8") as fh:
     text = fh.read()
 
-if '"/health"' in text:
-    print("      router.ex: already has /health")
-    sys.exit(0)
+HEALTH_ROUTE = 'get "/health", HealthController, :show'
+READY_ROUTE = 'get "/ready", HealthController, :ready'
+has_health = 'get "/health"' in text
+has_ready = 'get "/ready"' in text
+
+if has_health or has_ready:
+    # A pre-existing probe may be below :browser (cookie/CSRF). Keep NO route
+    # in that pipeline: remove recognized legacy lines and recreate BOTH in the
+    # family's pipeline-free scope below. An unknown probe shape fails closed.
+    lines = text.splitlines(keepends=True)
+    probes = (HEALTH_ROUTE, READY_ROUTE)
+    rest = []
+
+    for line in lines:
+        if any(f'get "{path}"' in line for path in ("/health", "/ready")):
+            if line.strip() not in probes:
+                print("      STRUCTURE: a probe route has an unexpected action or options; move it by hand")
+                sys.exit(5)
+        else:
+            rest.append(line)
+
+    text = "".join(rest)
+    print("      router.ex: legacy probes moved to a dedicated pipeline-free scope")
 
 marker = f'scope "/", {camel}Web do'
 idx = text.find(marker)
 if idx == -1:
-    print(f"      WARNING: could not find {marker!r} in router.ex — add the /health route by hand")
-    sys.exit(0)
+    print(f"      STRUCTURE: could not find {marker!r} in router.ex — the phx.new schema changed; update bootstrap.sh")
+    sys.exit(5)
 
 block = (
-    "  # Container/proxy healthcheck: outside :browser (no session, no CSRF,\n"
-    "  # no cookie decryption) and without touching the database. See SPEC-docker.md.\n"
+    "  # Container/proxy probes: outside :browser (no session, no CSRF,\n"
+    "  # no cookie decryption) and without touching the database. /ready is\n"
+    "  # the readiness sibling (HealthController.ready). See SPEC-docker.md.\n"
     f'  scope "/", {camel}Web do\n'
-    '    get "/health", HealthController, :show\n'
+    f"    {HEALTH_ROUTE}\n"
+    f"    {READY_ROUTE}\n"
     "  end\n\n"
 )
 
@@ -385,15 +470,218 @@ text = text[:idx] + block + text[idx:]
 with open(router, "w", encoding="utf-8") as fh:
     fh.write(text)
 
-print("      router.ex: /health route added (a scope with no pipeline)")
+print("      router.ex: /health + /ready added (a scope with no pipeline)")
 PY
+
+echo "[6/8] validating the staged tree"
+python3 - "$STAGE" "$APP" <<'PY'
+import os
+import re
+import sys
+
+stage, app = sys.argv[1:3]
+errors = []
+
+
+def read(path):
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+# Theme set (§C2): `dim --default` must be in the compiled `themes:` line and
+# no scaffold theme plugin may survive next to it.
+css_path = os.path.join(stage, "assets/css/app.css")
+if os.path.isfile(css_path):
+    css = read(css_path)
+    if not re.search(r"themes:[^\n]*\bdim --default\b", css):
+        errors.append("app.css: the compiled `themes:` line does not start with `dim --default`")
+    if re.search(r'@plugin\s+"[^"]*daisyui-theme"', css):
+        errors.append("app.css: a scaffold daisyUI theme plugin survived — it would override the family's set")
+else:
+    errors.append("app.css missing from the staged tree")
+
+root_html = os.path.join(stage, f"lib/{app}_web/components/layouts/root.html.heex")
+if os.path.isfile(root_html):
+    html = read(root_html)
+    if "data-theme={" not in html:
+        errors.append("root.html.heex: no `data-theme={...}` on <html>")
+    if "phx:theme" in html:
+        errors.append("root.html.heex: the inline theme switcher (phx:theme) survived")
+else:
+    errors.append("root.html.heex missing from the staged tree")
+
+web_ex = os.path.join(stage, f"lib/{app}_web.ex")
+if os.path.isfile(web_ex):
+    if "favicon.svg" not in read(web_ex):
+        errors.append("web.ex: favicon.svg missing from static_paths")
+else:
+    errors.append(f"lib/{app}_web.ex missing from the staged tree")
+
+router = os.path.join(stage, f"lib/{app}_web/router.ex")
+if os.path.isfile(router):
+    routes = read(router)
+    if 'get "/health", HealthController, :show' not in routes:
+        errors.append('router.ex: the `get "/health", HealthController, :show` route is missing')
+    if 'get "/ready", HealthController, :ready' not in routes:
+        errors.append('router.ex: the `get "/ready", HealthController, :ready` route is missing')
+else:
+    errors.append("router.ex missing from the staged tree")
+
+if errors:
+    for error in errors:
+        print(f"      STRUCTURE: {error}")
+    print("      nothing was written to the target — the run failed before the copy")
+    sys.exit(5)
+
+print("      theme · root layout · favicon · /health · /ready: all present")
+PY
+
+echo "[7/8] copying into $TARGET (collisions refused, mix.exs last)"
+python3 - "$STAGE" "$TARGET" "$APP" <<'PY'
+import os
+import shutil
+import sys
+
+stage, target, app = sys.argv[1:4]
+
+FAMILY_ENTRIES = [
+    ".riel/",
+    "/priv/static/uploads/",
+    "erl_crash.dump",
+    "/.env",
+]
+
+has_gitignore = os.path.isfile(os.path.join(target, ".gitignore"))
+has_readme = os.path.isfile(os.path.join(target, "README.md"))
+
+# When the target has its own .gitignore it is kept and merged into: the
+# staged (scaffold) one must not take part in the copy. When it has none, the
+# scaffold's is restored and the family entries (plus /.env) are merged in
+# here, so the copy brings the final file.
+staged_gitignore = os.path.join(stage, ".gitignore")
+if has_gitignore:
+    if os.path.isfile(staged_gitignore):
+        os.remove(staged_gitignore)
+else:
+    if not os.path.isfile(staged_gitignore):
+        print("      STRUCTURE: the scaffold has no .gitignore to restore")
+        sys.exit(5)
+    with open(staged_gitignore, encoding="utf-8") as fh:
+        text = fh.read()
+    lines = text.splitlines()
+    missing = [e for e in FAMILY_ENTRIES if e not in lines]
+    if missing:
+        with open(staged_gitignore, "a", encoding="utf-8") as fh:
+            if text and not text.endswith("\n"):
+                fh.write("\n")
+            fh.write("\n# Family (boilerplate)\n")
+            for entry in missing:
+                fh.write(entry + "\n")
+    print("      .gitignore: scaffold restored + " + (", ".join(missing) if missing else "family entries (already there)"))
+
+
+def same_file(a, b):
+    if os.path.getsize(a) != os.path.getsize(b):
+        return False
+    with open(a, "rb") as fa, open(b, "rb") as fb:
+        return fa.read() == fb.read()
+
+
+collisions = []
+to_write = []
+identical = 0
+for root, dirs, _files in os.walk(stage):
+    for name in dirs:
+        rel = os.path.relpath(os.path.join(root, name), stage)
+        dst = os.path.join(target, rel)
+        if os.path.exists(dst) and not os.path.isdir(dst):
+            collisions.append(f"{rel} (a file is in the way of a directory)")
+    for name in _files:
+        src = os.path.join(root, name)
+        rel = os.path.relpath(src, stage)
+        if rel == "README.md" and has_readme:
+            continue
+        if rel == ".gitignore" and has_gitignore:
+            continue
+        dst = os.path.join(target, rel)
+        if os.path.exists(dst):
+            if os.path.isdir(dst):
+                collisions.append(f"{rel} (a directory is in the way of a file)")
+            elif same_file(src, dst):
+                # A previous run died mid-copy and left the same content:
+                # not a collision, the retry just completes the tree.
+                identical += 1
+            else:
+                collisions.append(rel)
+        else:
+            to_write.append((src, dst, rel))
+
+if collisions:
+    print(f"      COLLISION: {len(collisions)} file(s) already exist in the target with different content:")
+    for rel in sorted(collisions):
+        print(f"        - {rel}")
+    print("      nothing was written. bootstrap.sh has no FORCE: preserve or remove")
+    print("      those files by hand (README.md, .gitignore and .git are the only")
+    print("      deliberate exceptions — they are kept, never clobbered).")
+    sys.exit(4)
+
+# mix.exs is the commit marker: it is written LAST, so a run that dies
+# mid-copy leaves no mix.exs and the retry re-enters cleanly instead of
+# aborting with "already an Elixir project".
+to_write.sort(key=lambda item: item[2] == "mix.exs")
+
+for src, dst, rel in to_write:
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    shutil.copyfile(src, dst)
+    shutil.copystat(src, dst)
+
+if has_gitignore:
+    with open(os.path.join(target, ".gitignore"), encoding="utf-8") as fh:
+        text = fh.read()
+    lines = text.splitlines()
+    missing = [e for e in FAMILY_ENTRIES if e not in lines]
+    if missing:
+        with open(os.path.join(target, ".gitignore"), "a", encoding="utf-8") as fh:
+            if text and not text.endswith("\n"):
+                fh.write("\n")
+            fh.write("\n# Family (boilerplate)\n")
+            for entry in missing:
+                fh.write(entry + "\n")
+    print("      .gitignore: kept the target's own + " + (", ".join(missing) if missing else "family entries (already there)"))
+
+print(f"      copied {len(to_write)} file(s)"
+      + (f" · {identical} already identical (retry-safe)" if identical else ""))
+PY
+
+echo "[8/8] ignore gate (git check-ignore)"
+if git -C "$TARGET" rev-parse --show-toplevel > /dev/null 2>&1; then
+  GATE_FAIL=""
+  for path in .env "deps/$APP" "_build/$APP"; do
+    if ! git -C "$TARGET" check-ignore -q -- "$path"; then
+      GATE_FAIL="$GATE_FAIL $path"
+    fi
+  done
+  if git -C "$TARGET" check-ignore -q -- .env.example; then
+    GATE_FAIL="$GATE_FAIL .env.example (must stay tracked)"
+  fi
+  if [ -n "$GATE_FAIL" ]; then
+    echo "error: the ignore gate failed —$GATE_FAIL not handled by .gitignore as required" >&2
+    echo "       fix .gitignore (it must ignore .env, deps/ and _build/, and keep .env.example tracked) and re-check with:" >&2
+    echo "         git -C $TARGET check-ignore -- .env deps/$APP _build/$APP .env.example" >&2
+    exit 5
+  fi
+  echo "      .env, deps/$APP, _build/$APP ignored · .env.example tracked"
+else
+  echo "      not a git repo (yet) — gate skipped; .gitignore already carries the rules"
+fi
 
 cat <<EOF
 
 Done. These steps remain (they need network and a database):
 
-  cd $TARGET
+  cd "$TARGET"
   cp .env.example .env && \$EDITOR .env        # SECRET_KEY_BASE, DATABASE_URL, salts (THEME optional)
+  direnv allow
   mix deps.get
   mix ecto.create
   mix compile --warnings-as-errors

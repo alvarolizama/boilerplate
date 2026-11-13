@@ -7,8 +7,8 @@ The app-family standard, in two pieces:
   search pickers, charts, states, conventions and shell). Sections `## C1..C12`
   plus Appendices A/B.
 - **The specs + `skeleton/`** — the portable layer of a Phoenix app: env vars,
-  Dockerfile, entrypoint, healthcheck, `mix` aliases, and the skeleton ready to
-  be materialized.
+  Dockerfile, entrypoint, liveness/readiness probes, `mix` aliases, and the
+  skeleton ready to be materialized.
 
 This repo is **spec-first**: the documents are read first, and only then does
 code get touched. Any agent landing on an app of the family starts here.
@@ -18,15 +18,16 @@ code get touched. Any agent landing on an app of the family starts here.
 | # | File | What it settles |
 |---|---|---|
 | 1 | `README.md` (this) | what the repo is, the rule, the map |
-| 2 | `SPEC-design.md` | how the Commons lands in code and how it is verified |
-| 3 | `SPEC-config.md` | env vars, session/cookies, DB-backed settings |
-| 4 | `SPEC-docker.md` | Dockerfile, entrypoint, healthcheck, ports |
-| 5 | `SPEC-readme.md` | the two READMEs — this index and the app's product README — with their sections and validation |
-| 6 | `SPEC-auth.md` | how people get in: password, Google, SSO — all optional — plus profiles |
-| 7 | `SPEC-identity.md` | the SSO mode with the family IdP (Umbral), in detail |
-| 8 | `VERSIONS.md` | pinned versions (toolchain, images, deps) |
-| 9 | `BOOTSTRAP.md` | how an app is born, step by step |
-| 10 | `skeleton/` | the portable layer already materialized, with placeholders |
+| 2 | `DESIGN.md` | the Commons itself: the complete, byte-exact UI standard |
+| 3 | `SPEC-design.md` | how the Commons lands in code and how it is verified |
+| 4 | `SPEC-config.md` | env vars, runtime session/cookies, DB-backed settings |
+| 5 | `SPEC-docker.md` | Dockerfile, entrypoint, health/readiness, ports |
+| 6 | `SPEC-readme.md` | the two READMEs — this index and the app's product README — with their sections and validation |
+| 7 | `SPEC-auth.md` | how people get in: password, Google, SSO — all optional — plus profiles |
+| 8 | `SPEC-identity.md` | the SSO mode with the family IdP (Umbral), in detail |
+| 9 | `VERSIONS.md` | pinned versions (toolchain, images, deps) |
+| 10 | `BOOTSTRAP.md` | how an app is born, step by step |
+| 11 | `skeleton/` | the portable layer already materialized, with placeholders |
 
 Every spec is **self-contained**: the contract and the snippets that matter are
 quoted where they belong, so nothing here depends on reading a file outside this
@@ -46,7 +47,7 @@ partitioned tables it does not need.
 
 | Layer | What it holds | Where it goes |
 |---|---|---|
-| **Portable** | domain-free Dockerfile, `docker/entrypoint.sh`, `config/*.exs`, the endpoint session block, `release.ex`, DB-free `/health` **with its test**, `.dockerignore`, `.env.example`, `.tool-versions` (the toolchain pin) | `skeleton/` → a new app |
+| **Portable** | domain-free Dockerfile and pinned build tools, `docker/entrypoint.sh`, `config/*.exs`, runtime session and proxy options, the endpoint, `release.ex`, DB-free `/health`, bounded `/ready`, both with tests, `.dockerignore`, `.env.example` + direnv `.envrc`, `.tool-versions` (the toolchain pin) | `skeleton/` → a new app |
 | **App domain** | proxy + gzip, webhooks, partitioned tables, notifications, budgets, provider catalog, Oban crons, vector search/inference, upload pipeline | stays in that app |
 
 ## Two different cycles — do not confuse them
@@ -83,9 +84,16 @@ boilerplate/
 bash skeleton/bootstrap.sh /path/to/<app>
 ```
 
-`bootstrap.sh` materializes the skeleton, replaces the placeholders and leaves
-the app compiling. The detail, the traps and the exact order are in
-`BOOTSTRAP.md`.
+`bootstrap.sh` materializes the skeleton in scratch, replaces the placeholders,
+fails on an incomplete scaffold, and only then copies the result. It preserves an
+existing `README.md`/`.gitignore`, refuses other target collisions, restores the
+Phoenix ignore rules when no `.gitignore` exists, and keeps `.env` out of git.
+The detail, the traps and the exact order are in `BOOTSTRAP.md`.
+
+Local environment loading is explicit: the generated `.envrc` uses `dotenv`, so
+run `direnv allow` after copying `.env.example` to `.env`. Production injects the
+same variables through the deploy platform; session options are resolved at
+runtime, not frozen into the compiled endpoint.
 
 ## How to use `DESIGN.md`
 
@@ -135,10 +143,11 @@ the spec that owns each piece.
 | What you need | Where it is |
 |---|---|
 | Env vars **required in production** (the boot dies without them) | `SPEC-config.md` §Required in production |
+| Runtime session, proxy, DB creation and optional readiness knobs | `SPEC-config.md` §Optional commons · `SPEC-docker.md` |
 | Optional vars with their defaults | `SPEC-config.md` §Optional commons |
-| Ready-to-copy template with every variable and a safe default | `skeleton/overlay/.env.example` (materialized into the app as `.env.example`) |
-| Container: build/runtime stages, ports, healthcheck, the `force_ssl` gate | `SPEC-docker.md` §Build stage · §Runtime stage · §Ports |
-| First deploy (create DB → migrate → seed) and the first account | `SPEC-docker.md` §Entrypoint · `BOOTSTRAP.md` §After the bootstrap |
+| Ready-to-copy template and direnv loader | `skeleton/overlay/.env.example` and `.envrc` |
+| Container: build/runtime stages, ports, liveness/readiness, the `force_ssl` gate | `SPEC-docker.md` §Build stage · §Runtime stage · §Ports |
+| First deploy (create DB → migrate → seed under the deployment lock) and the first account | `SPEC-docker.md` §Entrypoint · `BOOTSTRAP.md` §After the bootstrap |
 | Verifying before pushing (release, smoke, image) | `SPEC-docker.md` §Verification before pushing |
 | The README a new app is born with, and the production section it owes | `SPEC-readme.md` · `skeleton/overlay/README.md` |
 | Pinned versions (toolchain, images, deps) | `VERSIONS.md` |
@@ -150,8 +159,9 @@ declared in its own `runtime.exs` (`SPEC-config.md` §The app's own variables).
 
 ## The theme
 
-The family compiles its daisyUI set in `app.css` (`dim --default` plus the 35
-built-ins) and `root.html.heex` writes `Theme.current()` into `data-theme`. The
+The family compiles its daisyUI set in `app.css` (35 built-ins including
+`dim --default`) and `root.html.heex` writes `Theme.current()` into
+`data-theme`. The
 theme in use is chosen at **runtime** with `THEME` (default `dim`): switching it
 is a restart, not a rebuild, and never touches the views. `dim`'s reference
 values are in Appendix A of the doc; an unknown `THEME` falls back to `dim` with

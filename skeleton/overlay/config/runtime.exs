@@ -24,6 +24,81 @@ config :{{app}}, {{App}}Web.Endpoint,
 # falls back to `dim` ({{App}}Web.Theme.current/0).
 config :{{app}}, :theme, System.get_env("THEME", "dim")
 
+# --- Session cookie (runtime) -----------------------------------------------
+# These options are read on EVERY request: `{{App}}Web.Endpoint.session_options/0`
+# supplies both the HTTP session plug and the LiveView `connect_info` MFAs, so
+# nothing here is frozen into the BEAM by a compile. Rotating a salt, changing
+# the lifetime or flipping `secure` takes effect on restart, with no rebuild.
+#
+# In prod the two salts MUST come from the environment and MUST differ: a
+# committed fallback would be shared by every app of the family. Outside prod
+# the fallbacks are two distinct values, so local development needs no setup.
+# The rest of the cookie (store, key, same_site, http_only, renew) is code and
+# lives in the endpoint. See SPEC-config.md §Session and cookies.
+# An explicit SESSION_COOKIE_SECURE wins. Otherwise production HTTPS gets a
+# secure cookie by default; local HTTP and intentional prod HTTP do not.
+default_session_secure =
+  if config_env() == :prod and System.get_env("PHX_SCHEME", "https") == "https",
+    do: [secure: true],
+    else: []
+
+session_secure =
+  case System.get_env("SESSION_COOKIE_SECURE") do
+    v when v in ["true", "1"] -> [secure: true]
+    v when v in ["false", "0"] -> [secure: false]
+    _ -> default_session_secure
+  end
+
+session_max_age =
+  case Integer.parse(System.get_env("SESSION_MAX_AGE_SECONDS") || "31536000") do
+    {seconds, ""} when seconds > 0 ->
+      seconds
+
+    _ ->
+      raise """
+      environment variable SESSION_MAX_AGE_SECONDS must be a positive integer
+      number of seconds, e.g. 31536000 (one year).
+      """
+  end
+
+session_salts =
+  if config_env() == :prod do
+    Enum.each(["SESSION_SIGNING_SALT", "SESSION_ENCRYPTION_SALT"], fn var ->
+      System.get_env(var) ||
+        raise """
+        environment variable #{var} is missing.
+        Session cookie salts must not fall back to the repo defaults in prod.
+        Generate one with: mix phx.gen.secret 32
+        """
+    end)
+
+    signing = System.fetch_env!("SESSION_SIGNING_SALT")
+    encryption = System.fetch_env!("SESSION_ENCRYPTION_SALT")
+
+    if signing == encryption do
+      raise """
+      SESSION_SIGNING_SALT and SESSION_ENCRYPTION_SALT must be two DIFFERENT values.
+      Distinct salts separate the signing and encryption key domains.
+      Generate each one with: mix phx.gen.secret 32
+      """
+    end
+
+    [signing_salt: signing, encryption_salt: encryption]
+  else
+    [
+      signing_salt: System.get_env("SESSION_SIGNING_SALT", "{{app}}-dev-signing-salt"),
+      encryption_salt: System.get_env("SESSION_ENCRYPTION_SALT", "{{app}}-dev-encryption-salt")
+    ]
+  end
+
+config :{{app}}, :session, session_salts ++ [max_age: session_max_age] ++ session_secure
+
+# Proxy trust (false unless TRUST_PROXY=1). Read per request by the endpoint's
+# `Plug.RewriteOn` MFA: it rewrites peer/scheme/host/port from the X-Forwarded-*
+# headers. Only enable it when the container is unreachable except through the
+# proxy AND the proxy strips those headers — otherwise any client spoofs them.
+config :{{app}}, :trust_proxy, System.get_env("TRUST_PROXY") in ~w(true 1)
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
@@ -73,16 +148,15 @@ if config_env() == :prod do
       You can generate one by calling: mix phx.gen.secret
       """
 
-  # Session cookie salts. The endpoint has friendly fallbacks for dev, but in
-  # prod they MUST come from the environment: otherwise every app of the family
-  # shares the committed salts and session cookies can be forged/decrypted.
-  for var <- ["SESSION_SIGNING_SALT", "SESSION_ENCRYPTION_SALT"] do
-    System.get_env(var) ||
-      raise """
-      environment variable #{var} is missing.
-      Session cookie salts must not fall back to the repo defaults in prod.
-      Generate one with: mix phx.gen.secret 32
-      """
+  # Early failure instead of a broken deploy: Plug.Session.COOKIE refuses to
+  # write a cookie with a shorter base ("conn.secret_key_base to be at least 64
+  # bytes"), so every request that touches the session would 500 while a
+  # liveness probe still reported the container as up.
+  if byte_size(secret_key_base) < 64 do
+    raise """
+    SECRET_KEY_BASE is #{byte_size(secret_key_base)} bytes; it must be at least 64.
+    Generate a valid one with: mix phx.gen.secret
+    """
   end
 
   # PHX_HOST is the bare hostname (no scheme, no port). Behind a proxy on a
@@ -124,12 +198,42 @@ if config_env() == :prod do
          ] ++ check_origin_config
 
   # Google OAuth (optional — empty = Google sign-in disabled).
+  #
+  # GOOGLE_OAUTH_ALLOWED_DOMAINS restricts self-registration with Google:
+  # comma-separated bare domains of the verified email (`example.com,corp.example`).
+  # Empty/unset = only existing users can sign in. Splitting WITHOUT trim:true
+  # and trimming each item means a blank item or trailing comma is rejected:
+  # a malformed allowlist must fail closed, never become a partial allowlist.
+  allowed_domains =
+    case System.get_env("GOOGLE_OAUTH_ALLOWED_DOMAINS") do
+      value when value in [nil, ""] ->
+        []
+
+      domains ->
+        domains
+        |> String.split(",", trim: false)
+        |> Enum.map(fn domain ->
+          domain = domain |> String.trim() |> String.downcase()
+
+          unless Regex.match?(
+                   ~r/\A[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\z/,
+                   domain
+                 ) and String.contains?(domain, ".") and
+                   not String.contains?(domain, "..") do
+            raise "GOOGLE_OAUTH_ALLOWED_DOMAINS contains an invalid or blank domain: #{inspect(domain)}"
+          end
+
+          domain
+        end)
+    end
+
   config :{{app}}, :google_oauth,
     client_id: System.get_env("GOOGLE_OAUTH_CLIENT_ID"),
     client_secret: System.get_env("GOOGLE_OAUTH_CLIENT_SECRET"),
     redirect_uri:
       System.get_env("GOOGLE_OAUTH_REDIRECT_URI") ||
-        "#{scheme}://#{host}/auth/google/callback"
+        "#{scheme}://#{host}/auth/google/callback",
+    allowed_domains: allowed_domains
 end
 
 # --- Variables of {{App}} itself --------------------------------------------

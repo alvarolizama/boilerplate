@@ -26,6 +26,7 @@ stop being true as {{App}} grows, and delete this paragraph once they are all
 
 ```bash
 cp .env.example .env        # SECRET_KEY_BASE, DATABASE_URL and BOTH salts
+direnv allow                # the .envrc loads .env — never export secrets by hand
 mix deps.get
 mix ecto.create
 mix phx.server              # http://localhost:4000
@@ -44,6 +45,18 @@ Two blocks matter:
   them, by design.
 - **Optional commons** — `PORT`, `PHX_SCHEME`, `PHX_PORT`, `THEME`, `ECTO_SSL`,
   `SESSION_MAX_AGE_SECONDS` and the rest, documented in the same file.
+
+The session, proxy and readiness knobs are **runtime** configuration — restart,
+no rebuild:
+
+| Concern | Variables | The rule |
+|---|---|---|
+| Session | `SESSION_SIGNING_SALT`, `SESSION_ENCRYPTION_SALT` (two, different), `SESSION_MAX_AGE_SECONDS`, `SESSION_COOKIE_SECURE` | the salts are mandatory in prod; both salts and the cookie flags obey the environment |
+| Proxy / URLs | `PORT` (listen), `PHX_SCHEME` + `PHX_PORT` (generated URLs), `CHECK_ORIGINS` (extra origins behind a second scheme/host), `TRUST_PROXY` (sanitized `X-Forwarded-*` only behind an isolated proxy) | `PORT` is what the proxy points at; `PHX_SCHEME=https` enables the default `Secure` cookie in prod; the rest is how the app looks from outside |
+| Readiness | — | `/health` is **liveness only** (no database); `/ready` checks `SELECT 1` with a bounded timeout and returns 503 when the database is unavailable. Point the proxy at `/ready`, keep Docker on `/health` |
+
+The full contract — defaults, parsing, fail-closed rules — is `SPEC-config.md`;
+the container contract (ports, entrypoint, healthcheck) is `SPEC-docker.md`.
 
 <{{App}}'s own variables are declared in `config/runtime.exs` (read at runtime
 with `System.get_env/1`) and documented in `.env.example` next to the others.>
@@ -66,7 +79,7 @@ docker run --rm -p 4000:4000 --env-file .env {{app}}
 | Ports | `PORT` (the listen) must match the platform's **Ports Exposes**; `PHX_PORT` is only the port used in generated URLs |
 | Healthcheck | the probe is `GET /health`, never `/` — and it must stay database-free |
 | Migrations | the entrypoint runs `{{App}}.Release.setup/0` (create → migrate → seed) on every deploy, before serving |
-| First account | without `{{APP}}_ADMIN_PASSWORD` the boot creates nobody and the first visitor gets the first-run screen: close that window or deploy behind a network boundary |
+| First account | Default: `/onboarding`, closed after the first person and serialized by an advisory lock. Optional: set `{{APP}}_ADMIN_PASSWORD` (optionally `{{APP}}_ADMIN_EMAIL`) on the first deploy; the opt-in seed is idempotent under the setup advisory lock. Never use an open sign-up or committed password |
 | HTTPS | `force_ssl` is compile-time: behind a VPN build with `DISABLE_FORCE_SSL=1` and run with `PHX_SCHEME=http` |
 | Uploads | <when {{App}} stores uploads: a persistent volume at the upload directory, and that directory in `.dockerignore`> |
 

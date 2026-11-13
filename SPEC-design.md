@@ -60,18 +60,23 @@ grep -rn 'table-zebra\|@apply' lib/ assets/css/                        # 0 (§C2
 
 ## Propagation into an app
 
-1. Split the reference `DESIGN.md` at the `## Custom —` heading (the Commons
-   runs up to there) and paste the block above into the app's `DESIGN.md`.
-2. Fix the sentences inside the Commons that name an app (paths in
-   `root.html.heex`, which theme each app runs): they are corrected, not
-   annotated.
+1. Split the reference `DESIGN.md` at its FIRST `## Custom —` heading (the
+   Commons runs up to there) and paste the block above into the app's
+   `DESIGN.md`.
+2. **Do not edit the Commons in the app's copy — not even a sentence.** The
+   paste is byte-exact. If a sentence of the Commons names an app (paths in
+   `root.html.heex`, which theme each app runs), the fix belongs HERE, in this
+   repo's `DESIGN.md`; then re-propagate. Editing the sentences in place is
+   drift, and `check-commons.sh` will flag it as such.
 3. Write `## Custom — <App>` with what is exclusive (its own shell, the role of
    its tokens, its brand, screens no other app has).
 4. Verify the Commons came out identical: the app's `DESIGN.md` must start with
    the Commons as-is — mechanically, with
    `bash skeleton/check-commons.sh <app-dir> [<app-dir>…]`: it compares the
-   Commons above `## Custom —` against this repo's `DESIGN.md`, ignores the
-   prescribed `---` separator, and exits 1 when an app drifted. Read-only.
+   Commons above the FIRST `## Custom —` heading against this repo's
+   `DESIGN.md`, ignores the prescribed `---` separator, prints a bounded
+   unified diff for each drifted app, and exits `1` when an app drifted or `2`
+   when an app has no `DESIGN.md` (a skip is never a pass). Read-only.
 5. Atomic commits, separating UI from docs.
 
 ## Anti-patterns

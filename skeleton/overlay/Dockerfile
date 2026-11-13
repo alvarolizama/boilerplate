@@ -21,12 +21,21 @@ FROM ${ELIXIR_IMAGE} AS build
 # you do NOT need Node. If your app ships its own JS (assets/package.json),
 # uncomment the Node block below.
 RUN apt-get update -y \
-  && apt-get install -y build-essential git curl ca-certificates \
+  && apt-get install -y --no-install-recommends build-essential git curl ca-certificates \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-RUN mix local.hex --force && mix local.rebar --force
+# Pinned toolchain. `mix local.hex <version>` takes the version directly; rebar3
+# is pinned by artifact URL + SHA-512 because `mix local.rebar` only accepts a
+# version-less install: 3.28.0 is the build published for this OTP release
+# (1.18.4 is the newest Elixir directory Hex ships precompiled artifacts for,
+# which is the same fallback `mix local.rebar` resolves on its own). The
+# checksum comes from https://repo.hex.pm/installs/rebar.csv.
+RUN mix local.hex 2.7.0 --force \
+  && mix local.rebar rebar3 "https://builds.hex.pm/installs/1.18.4/rebar3-3.28.0-otp-29" \
+    --sha512 b51946058fbe4aa823185bfe27204be59be439982ac3a3e1dbd9f8260b9af046fcfdfbd9066283c3fbba5a2a45dc3570550c12a9a548daf223b80cac222a6d0f \
+    --force
 
 ENV MIX_ENV=prod
 
@@ -77,7 +86,8 @@ FROM ${DEBIAN_RUNTIME} AS app
 
 # curl is used by the proxy's healthcheck (the slim image does not ship it).
 RUN apt-get update -y \
-  && apt-get install -y libstdc++6 openssl libncurses6 locales ca-certificates curl \
+  && apt-get install -y --no-install-recommends \
+       libstdc++6 openssl libncurses6 locales ca-certificates curl \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # UTF-8 locale — Elixir expects it at runtime.
@@ -96,6 +106,13 @@ COPY --from=build --chown=app:app /app/_build/prod/rel/{{app}} ./
 # skips it.
 COPY --chown=app:app docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
+
+# HOME must be WRITABLE. Distributed Erlang writes its cookie to $HOME
+# (/app/.erlang.cookie) as soon as DNS_CLUSTER_QUERY is set, and a read-only
+# /app makes clustering fail with `eacces` in the logs while the container still
+# serves — alone. WORKDIR created /app as root, so the directory itself (its
+# contents already belong to app) is handed over here.
+RUN chown app:app /app
 
 USER app
 

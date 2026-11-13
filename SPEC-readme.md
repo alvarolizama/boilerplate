@@ -101,14 +101,17 @@ this spec fixes the sections and what each owes, the template carries the prose.
 | Local development | the copy-get-create-serve sequence, and `GET /health` as the probe | `BOOTSTRAP.md` §After the bootstrap |
 | Configuration | the **five required vars** by name, the optional commons, and that `.env.example` is the complete template; the app's own variables live next to them | `SPEC-config.md` §Required in production · §Optional commons |
 | The UI standard | `DESIGN.md` is the Commons copied as-is plus `## Custom — <App>`; the Commons is edited in the boilerplate repo, never in the app | `SPEC-design.md` |
-| Production | **mandatory** — `PORT` vs **Ports Exposes**, the `/health` healthcheck (never `/`), migrations on every deploy (`Release.setup`), the first account and its first-run window, the HTTPS decision, the uploads volume when the app stores uploads | `SPEC-docker.md` §Ports · §Entrypoint · §Known gaps |
+| Production | **mandatory** — `PORT` vs **Ports Exposes**, `/health` liveness and `/ready` readiness (never `/`), migrations on every deploy (`Release.setup`), the first account: guarded onboarding by default or the opt-in seed (`{{APP}}_ADMIN_PASSWORD` plus the app's `_ADMIN_EMAIL` default), the HTTPS decision, the uploads volume when the app stores uploads | `SPEC-docker.md` §Ports · §Entrypoint · §Known gaps |
 | Tests and gates | the command that closes the loop | `mix precommit` |
 | Documentation | where the rest lives (product docs, API, MCP) — or the section is deleted | the app's own `docs/` |
 
 **The production section is the one this spec exists for.** A README that stops
 at "install and run" leaves the deployer with three known traps: the healthcheck
-pointing at `/`, `PORT` disagreeing with the platform's **Ports Exposes**, and
-the open first-run window (`SPEC-docker.md` §Known gaps).
+pointing at `/`, `PORT` disagreeing with the platform's **Ports Exposes**, and a
+first deploy without bootstrap credentials. The default remains the guarded
+`/onboarding` screen; the explicit opt-in seed uses
+`{{APP}}_ADMIN_PASSWORD` (and the app's optional `_ADMIN_EMAIL` default) to close
+that window (`SPEC-docker.md` §Known gaps).
 
 ## Where the product README comes from
 
@@ -124,14 +127,27 @@ the open first-run window (`SPEC-docker.md` §Known gaps).
 ## Validation
 
 ```bash
-# the app's README: the sections exist, in order, and none is left as a skeleton
-grep -n '^## ' README.md                 # What it is · Stack · Local development ·
-                                         # Configuration · The UI standard ·
-                                         # Production · Tests and gates
-grep -n 'Ports Exposes\|/health' README.md   # the production section is real, not a heading
-grep -rn '{{' README.md                  # 0 — the bootstrap's placeholder gate
+# the app's README: the sections exist, in this exact order, and none is left
+# as a skeleton. `Documentation` is optional: when the app deletes the section,
+# delete its row from the expected list too — the diff must be empty either way.
+diff <(awk '/^## /{sub(/^## /, ""); print}' README.md) <(printf '%s\n' \
+  'What it is' 'Stack' 'Local development' 'Configuration' \
+  'The UI standard' 'Production' 'Tests and gates' 'Documentation')
 
-# the index: nothing in the root is orphaned
+grep -n 'Ports Exposes\|/health' README.md   # the production section is real, not a heading
+
+# no surviving template placeholder: the bootstrap's {{…}} gate, plus the
+# prose <slots> the app is expected to replace (code blocks skipped; autolinks
+# like <https://…> excluded). Both greps must print nothing.
+! grep -n '{{' README.md
+! { awk '/^```/{skip=!skip} !skip' README.md \
+    | grep -E '(^|\|) *<[a-zA-Z{]' | grep -v '<https\?://'; }
+```
+
+The index has its own two gates:
+
+```bash
+# nothing in the root is orphaned
 for f in DESIGN.md SPEC-*.md VERSIONS.md BOOTSTRAP.md; do
   grep -q "$f" README.md || echo "orphaned (no row in the index): $f"
 done

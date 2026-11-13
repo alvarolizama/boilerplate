@@ -169,7 +169,7 @@ LiveView has them through `use <App>Web, :html`, with no imports):
 | `<.nav_group>` | group label + its links | `label` + slot |
 | `<.menu_item>` | menu entry (dropdown, user menu) | `href` · `icon` · `label` · `active` |
 | `<.section>` | section: box with header (badge + title + caption) | `title` · `icon` · `caption` + slot |
-| `<.modal>` | compact modal (C7.1): ✕ / Escape / click-away | `id` · `title` · `on_close` · `max_w` + slot (the caller gates it with `:if`) |
+| `<.modal>` | compact modal (C7.1): ✕ / Escape / click-away | `id` · `title` · `on_close` · `close_on_escape` (default `true`) · `max_w` + `left` slot (footer, §C7.2) + slot (the caller gates it with `:if`) |
 | `<.empty_state>` | the canonical empty state (C6) | `icon` · `title` · `caption` · `class` + CTA slot |
 
 They were born in admin/settings and in the shell, and were promoted to
@@ -286,18 +286,64 @@ Rules:
 
 ## C7. Modals
 
-The standard pattern = an overlay `div`, **not `<dialog>`**. Closing = flipping
-the assign back.
+The standard pattern = an overlay `div`, **not `<dialog>`** (the family keeps
+one primitive, and `<dialog>`'s `showModal()` does not survive LiveView
+patches). Closing = flipping the assign back.
+
+Both shapes below are instances of **one primitive contract**, which `<.modal>`
+in `CoreComponents` implements:
+
+| Piece | Contract |
+|---|---|
+| `id` | Root id (`thing-modal`): the test anchor and the dialog's DOM id. |
+| `title` | Rendered as `<h2 id="thing-modal-title">`; the panel points at it with `aria-labelledby` — never a hand-written duplicate `aria-label`. |
+| `on_close` | Event fired by ✕, the backdrop and Escape; the host flips its assign. |
+| `close_on_escape` | Default `true`. Pass `false` while an inner picker owns Escape (§C8.3 rule 8) and re-arm it when the picker closes. |
+| `max_w` | `max-w-md` (confirmations) · `max-w-lg` · `max-w-2xl` (forms) · `max-w-5xl` (two-column). |
+| `left` slot | Footer, left of the CTA pair (§C7.2): destructive or secondary action. |
+| slot | Body. |
+
+Accessibility contract — the four things every modal owes, in the DOM:
+
+1. **Dialog semantics, and only those.** The panel carries `role="dialog"`,
+   `aria-modal="true"` and `aria-labelledby` pointing at the title's id. The
+   backdrop is `aria-hidden="true"` — a plain div, not `role="button"` and not
+   another `role="dialog"`; no `role="document"`, no `role="presentation"` on
+   every child. Role soup tells assistive tech less than the two attributes
+   above.
+2. **Initial focus lands inside the dialog** when it opens — the first
+   focusable control, or the panel itself (`tabindex="-1"`) when there is
+   none. It never stays on the trigger behind the overlay.
+3. **Focus stays inside while it is open** — a real Tab/Shift+Tab cycle.
+   `aria-modal` is a promise to assistive tech, not a mechanism; background
+   content is inert for AT because of it, and when the modal is a direct child
+   of `<body>` also set `inert` on the app root. Do not rely on `aria-hidden`
+   alone (it leaves the controls reachable by keyboard).
+4. **Focus returns to the trigger** however the modal closed (✕, Escape,
+   backdrop, save): remember `document.activeElement` on mount and restore it
+   from `destroyed/0` if it is still connected.
+
+Escape is bound at the window — `phx-window-keydown` + `phx-key="Escape"` —
+only while the modal is open, and only when `close_on_escape` is true:
+`phx-window-keydown={if(@close_on_escape, do: @on_close)}`. HEEx drops a `nil`
+value, so the binding disappears instead of firing; no `and` cascade over a
+string, and no dead attribute when the picker owns Escape.
 
 ### C7.1 Simple modal (one column)
 
 ```heex
-<div :if={@show_modal?} class="fixed inset-0 z-50 flex items-center justify-center p-4" id="thing-modal">
-  <div class="absolute inset-0 bg-black/50" phx-click="cancel_form" />
+<div :if={@show_modal?} id="thing-modal-overlay"
+     class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+     phx-window-keydown={if(@close_on_escape, do: "cancel_form")} phx-key="Escape">
+  <%!-- Backdrop = click-away. Core LiveView has no `phx-click-away`: a sibling
+       div catches the click, so clicking inside the panel never closes it. --%>
+  <div class="absolute inset-0" phx-click="cancel_form" aria-hidden="true"></div>
 
-  <div class="relative card bg-base-100 border border-base-300 shadow-xl w-full max-w-2xl">
+  <div id="thing-modal" role="dialog" aria-modal="true" aria-labelledby="thing-modal-title"
+       tabindex="-1" phx-hook=".ModalFocus"
+       class="relative card bg-base-100 border border-base-300 shadow-xl w-full max-w-2xl">
     <div class="card-body p-6">
-      <h2 class="text-lg font-semibold mb-4">New …</h2>
+      <h2 id="thing-modal-title" class="text-lg font-semibold mb-4">New …</h2>
       <.form for={@form} id="thing-form" phx-submit="save">
         …
         <div class="flex gap-2 mt-6 justify-end">
@@ -308,6 +354,50 @@ the assign back.
     </div>
   </div>
 </div>
+
+<script :type={Phoenix.LiveView.ColocatedHook} name=".ModalFocus">
+  // Initial focus + Tab trap + focus return for the modal primitive (C7).
+  // One hook for every modal: it lives on the panel, so nothing in the dialog
+  // has to know about it.
+  export default {
+    mounted() {
+      this.previouslyFocused = document.activeElement;
+      this.focusables = () =>
+        Array.from(
+          this.el.querySelectorAll(
+            'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          )
+        );
+
+      const first = this.focusables()[0];
+      (first || this.el).focus();
+
+      this.onKeydown = (event) => {
+        if (event.key !== "Tab") return;
+        const items = this.focusables();
+        if (items.length === 0) return event.preventDefault();
+
+        const firstItem = items[0];
+        const lastItem = items[items.length - 1];
+        const active = document.activeElement;
+
+        if (event.shiftKey && (active === firstItem || active === this.el)) {
+          event.preventDefault();
+          lastItem.focus();
+        } else if (!event.shiftKey && active === lastItem) {
+          event.preventDefault();
+          firstItem.focus();
+        }
+      };
+
+      this.el.addEventListener("keydown", this.onKeydown);
+    },
+    destroyed() {
+      const target = this.previouslyFocused;
+      if (target && target.isConnected) target.focus();
+    },
+  };
+</script>
 ```
 
 ### C7.2 Two-column modal (content + metadata sidebar)
@@ -319,15 +409,19 @@ For large forms (creating/editing a resource): header (pill + title + ✕),
 ```heex
 <div :if={@show_modal?} id="thing-modal-overlay"
      class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 sm:p-6"
-     phx-window-keydown="cancel_form" phx-key="Escape">
-  <div id="thing-modal" role="dialog" aria-modal="true" phx-click-away="cancel_form"
-       class="card bg-base-100 border border-base-300 shadow-2xl w-full flex flex-col overflow-hidden
+     phx-window-keydown={if(@close_on_escape, do: "cancel_form")} phx-key="Escape">
+  <%!-- Same backdrop contract as C7.1: a sibling, so clicks inside never close. --%>
+  <div class="absolute inset-0" phx-click="cancel_form" aria-hidden="true"></div>
+
+  <div id="thing-modal" role="dialog" aria-modal="true" aria-labelledby="thing-modal-title"
+       tabindex="-1" phx-hook=".ModalFocus"
+       class="relative card bg-base-100 border border-base-300 shadow-2xl w-full flex flex-col overflow-hidden
               h-[calc(100vh-3rem)] sm:h-[calc(100vh-4rem)] max-w-5xl">
     <%!-- Header --%>
     <div class="flex items-center justify-between px-5 py-3.5 border-b border-base-300 shrink-0">
       <div class="flex items-center gap-2.5 min-w-0">
         <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 bg-primary/10 text-primary">Resource</span>
-        <h3 class="text-base font-semibold truncate">New …</h3>
+        <h3 id="thing-modal-title" class="text-base font-semibold truncate">New …</h3>
       </div>
       <button type="button" phx-click="cancel_form" class="btn btn-ghost btn-xs btn-circle" aria-label="Close">
         <.icon name="hero-x-mark" class="size-4" />
@@ -367,10 +461,19 @@ Rules (both):
 
 - **Visible only when the assign exists** (`:if={@form != nil}` /
   `@show_modal?`).
-- **Close by backdrop `phx-click` + Escape**
-  (`phx-window-keydown` + `phx-key="Escape"`).
+- **Close by ✕, backdrop click and Escape.** The backdrop is a **sibling**
+  `phx-click` catcher (`aria-hidden="true"`), never an ancestor of the panel —
+  a click inside the dialog must not bubble into a close, and
+  `phx-click-away` does not exist in core LiveView. Escape rides
+  `phx-window-keydown` + `phx-key="Escape"` and is bound **only while
+  `close_on_escape` is true** (a picker inside owns Escape meanwhile, §C8.3
+  rule 8).
+- **The dialog lives on the panel, the hook on the panel:** `role="dialog"`,
+  `aria-modal="true"`, `aria-labelledby` → the title's id, `tabindex="-1"` and
+  `phx-hook=".ModalFocus"`. The overlay `div` is a positioning box with no
+  role; the backdrop carries none either.
 - **Widths:** `max-w-md` (confirmations) · `max-w-lg` · `max-w-2xl` (forms) ·
-  `max-w-5xl` (two-column modals).
+  `max-w-5xl` (two-column modals) — the `max_w` attribute.
 - **Destructive confirmations:** `data-confirm="…? This action cannot be
   undone."` on the button.
 - **The verb says what the button does, not the color:** a close ("Cancel",
@@ -427,10 +530,12 @@ close.**
 <div class="relative">
   <input type="text" id="<kind>-search" name="<kind>_query" role="combobox"
     aria-controls="<kind>-list" aria-expanded={to_string(@<kind>_open)}
+    aria-autocomplete="list" aria-haspopup="listbox"
+    aria-activedescendant={@<kind>_active_id}
     value={@<kind>_query} placeholder="Search…"
     phx-focus="open_<kind>" phx-keyup="<kind>_search" phx-keydown="<kind>_key"
     phx-hook=".<Kind>Autocomplete" autocomplete="off"
-    class="input input-sm w-full" />
+    class="input input-sm w-full relative z-30" />
   <script :type={Phoenix.LiveView.ColocatedHook} name=".<Kind>Autocomplete">
     export default {
       mounted() {
@@ -442,34 +547,67 @@ close.**
   </script>
 
   <%= if @<kind>_open do %>
-    <%!-- Click-away catcher (the drawer-overlay pattern). --%>
+    <%!-- Click-away catcher (the drawer-overlay pattern). It sits at z-20,
+         BELOW the input's z-30: the overlay is later in the DOM, so an
+         un-indexed input would sit under it and a click back into the box
+         would close the list and wipe the query. --%>
     <div class="fixed inset-0 z-20" phx-click="close_<kind>" aria-hidden="true"></div>
 
     <ul id="<kind>-list" role="listbox" aria-label="Options"
         class="absolute z-30 mt-1 w-full menu menu-sm bg-base-100 border border-base-300
                rounded-box shadow-lg max-h-48 overflow-y-auto">
-      <li :for={{item, i} <- @<kind>_visible} role="option"
+      <%!-- The <li> IS the option: the click lives here. No nested <button> —
+           a button inside role="option" is a second control with its own name,
+           announced twice, and Tab lands on it instead of the input. --%>
+      <li :for={{item, i} <- Enum.with_index(@<kind>_visible)} id={"<kind>-option-#{item.id}"} role="option"
           aria-selected={to_string(item.id == @selected)}
-          class={i == @<kind>_active && "bg-base-200"}>
-        <button type="button" phx-click="pick_<kind>" phx-value-id={item.id}>
-          <.icon name={item.id == @selected && "hero-check" || "hero-map-pin"}
-                 class="size-4 opacity-60" />
-          {item.label}
-        </button>
+          tabindex="-1"
+          phx-click="pick_<kind>" phx-value-id={item.id}
+          class={["cursor-pointer", i == @<kind>_active && "bg-base-200"]}>
+        <.icon name={item.id == @selected && "hero-check" || "hero-map-pin"}
+               class="size-4 opacity-60" />
+        {item.label}
       </li>
     </ul>
   <% end %>
 </div>
 ```
 
+`tabindex="-1"` on the rows keeps focus on the input while a row is clicked,
+so the box never blurs mid-pick. `<kind>_active_id` is an assign the handlers
+keep in sync with the cursor — the **row's** DOM id (`"<kind>-option-" <> id`),
+`nil` when the list is closed or empty. Computing it server-side keeps HEEx
+free of boolean arithmetic and guarantees `aria-activedescendant` points at a
+row that is actually rendered (a dangling id is worse than no id).
+
 Server side — filter rides `phx-keyup` (the payload carries the input's
 `value` per keystroke), nav keys ride `phx-keydown`, and the pick is merged
 **server-side** into the submit params:
 
 ```elixir
-def handle_event("<kind>_search", %{"value" => query}, socket), do: …   # filter + reset cursor
-def handle_event("<kind>_key", %{"key" => "Enter"}, socket), do: …      # pick active, close
-def handle_event("pick_<kind>", %{"id" => id}, socket), do: …           # same, from a click
+# One function owns the cursor: it sets `<kind>_active` AND `<kind>_active_id`
+# together, so the highlight and `aria-activedescendant` can never disagree.
+defp move_cursor(socket, index) do
+  case Enum.at(socket.assigns.<kind>_visible, index) do
+    nil -> assign(socket, <kind>_active: -1, <kind>_active_id: nil)
+    item -> assign(socket, <kind>_active: index, <kind>_active_id: "<kind>-option-#{item.id}")
+  end
+end
+
+# phx-keyup delivers EVERY keyup, nav keys included: ignore them here or the
+# browser's own keydown is undone (arrows never move, Escape reopens).
+def handle_event("<kind>_search", %{"key" => key}, socket)
+    when key in ~w(ArrowDown ArrowUp Enter Escape Tab) do
+  {:noreply, socket}
+end
+
+def handle_event("<kind>_search", %{"value" => query}, socket), do: …  # filter + refilter cursor
+
+def handle_event("<kind>_key", %{"key" => "Enter"}, socket), do: …     # pick the active row
+def handle_event("<kind>_key", %{"key" => "Escape"}, socket), do: …    # clear query, close, keep the pick
+
+# The click on the <li> and Enter run the SAME private function.
+def handle_event("pick_<kind>", %{"id" => id}, socket), do: pick(socket, id)
 
 def handle_event("submit", %{"thing" => params}, socket) do
   # merge the picked value from socket assigns — never from the DOM
@@ -497,19 +635,28 @@ end
    open** (C8.4).
 4. **Click-away = a fixed full-screen overlay catcher** behind the dropdown
    (`fixed inset-0 z-20` + `phx-click="close_…"`, list at `z-30`) — the
-   drawer-overlay pattern. Core LiveView has **no `phx-click-away`**.
+   drawer-overlay pattern. Core LiveView has **no `phx-click-away`**, and the
+   input itself carries `relative z-30` so the catcher never eats a click
+   meant for the box.
 5. **Escape closes and clears the query without touching the picked value.**
 6. Cap the rendered rows (~60) with a "N more — refine the search" hint, and
    default the keyboard cursor (highlighted row) to the first suggestion.
 7. **The active row must be visible to screen readers, not just styled.** The
-   input carries `aria-autocomplete="list"` and `aria-activedescendant` pointing
-   at the active row's DOM id; the row carries its own `id`. A highlight class
-   alone (`bg-base-200`) is invisible to assistive tech.
+   input carries `role="combobox"`, `aria-autocomplete="list"`,
+   `aria-expanded`, `aria-controls` → the listbox id, and
+   `aria-activedescendant` → the active **row's** id (`<kind>-option-<id>`);
+   each `<li role="option">` carries its own `id` and `aria-selected`. A
+   highlight class alone (`bg-base-200`) is invisible to assistive tech, and
+   the option is the `<li>` itself — never a `<button>` nested inside it.
 8. **A picker inside a `<.modal>` fights the modal's global Escape.** The
-   modal binds `phx-window-keydown` + `phx-key="escape"` — one Escape closes
-   the whole modal, not the dropdown. While the picker is open the host passes
-   `close_on_escape={false}` to the modal and re-enables it when the picker
-   reports it closed; Escape then closes ONLY the dropdown.
+   modal binds `phx-window-keydown` + `phx-key="Escape"` (§C7): one Escape
+   closes the whole modal, not the dropdown. While the picker is open the host
+   passes `close_on_escape={false}` to the modal and re-arms it when the
+   picker reports closed — on Escape, on the click-away and on the input's
+   `blur`. Escape then closes ONLY the dropdown. Blur re-arms the modal's
+   Escape and nothing else: never close the list there (it fires before the
+   click that picks a row, and the pick is eaten). The rows' `tabindex="-1"`
+   already keeps the input focused through a click.
 
 ### C8.4 Multi combobox (N values, with search)
 
@@ -525,13 +672,24 @@ diverge. `SebkaWeb.Sharing.RecipientPicker` is that case.
 
 ```heex
 <div :if={@current_owner_ids != []} class="flex flex-wrap gap-1 mt-2">
-  <span :for={id <- @current_owner_ids}
-    class="badge badge-sm badge-primary gap-1 cursor-pointer"
-    phx-click="toggle_owner" phx-value-id={id}>
-    {label_for(id)} <.icon name="hero-x-mark" class="size-3" />
+  <span :for={id <- @current_owner_ids} class="badge badge-sm badge-primary gap-1 pr-1">
+    {label_for(id)}
+    <%!-- The removable control is a real <button> with a name of its own (§C4
+         "Removable chip"). A clickable <span>/<div> has no role, no accessible
+         name and no keyboard: it is invisible to a screen reader and unreachable
+         with Tab. --%>
+    <button type="button" phx-click="toggle_owner" phx-value-id={id}
+            class="inline-flex items-center justify-center size-4 opacity-60 hover:opacity-100"
+            aria-label={"Remove " <> label_for(id)}>
+      <.icon name="hero-x-mark" class="size-3" />
+    </button>
   </span>
 </div>
 ```
+
+The chip's **text is not a control**: one target per chip (the ✕ button), named
+`"Remove <label>"` so the name says which chip it removes — `aria-label="Remove"`
+alone is unusable in a list of ten. `phx-click` never rides a bare `span`.
 
 ### C8.5 Toggleable badges (N values, no search)
 

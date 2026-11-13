@@ -17,7 +17,7 @@ passwords.
 
 | Mode | When | What it adds |
 |---|---|---|
-| **1 · Username and password** | the base of any app; no external dependency | a `users` table with a hash + rate limit + onboarding |
+| **1 · Username and password** | the base of any app; no external dependency | a `users` table with a hash + rate limit + guarded onboarding or an opt-in first-admin seed |
 | **2 · Google (without Umbral)** | the app wants social sign-in without running an IdP | `google_id`/`avatar_url` + its own OAuth |
 | **3 · Umbral (SSO)** | one more app of the family, governed by the IdP | `sub` as the profile key — see `SPEC-identity.md` |
 
@@ -30,7 +30,7 @@ passwords.
 | **Timing-safe** authentication | `Bcrypt.no_user_verify/0` on the path where the email does not exist |
 | Per-IP rate limit on the login POST | a plug in front of the session controller (e.g. 10 attempts) |
 | Session controller | `renew: true`, an audit entry, and a **uniform error** |
-| First account | `/onboarding`, self-disabling once a person exists, creating under `pg_advisory_xact_lock` so two racing submits do not mint two admins |
+| First account | Default: `/onboarding`, which closes after the first person and creates under an advisory lock. Optional prod bootstrap: set `{{APP}}_ADMIN_PASSWORD` (and optionally the app's `{{APP}}_ADMIN_EMAIL` default); the seed is idempotent and runs under the `Release.setup/0` advisory lock |
 | Routes | `GET /login`, `DELETE /logout` |
 | Password change | requires the current password (re-authentication) and is audited |
 
@@ -43,9 +43,10 @@ passwords.
    the email does not exist.
 3. The session is **renewed** on sign-in (`configure_session(renew: true)`): a
    new session id prevents fixation.
-4. The first admin does not come from a seed: it comes from `/onboarding`, which
-   turns itself off once there is a person, and it creates under an advisory
-   lock.
+4. The first admin comes from **guarded `/onboarding`** (closes after the first
+   person, creation under an advisory lock) or the **explicit opt-in prod seed**:
+   `{{APP}}_ADMIN_PASSWORD` is required and its write runs under the
+   `Release.setup/0` advisory lock. Never an open sign-up or a committed password.
 5. Changing the password requires the current one, and the change is audited.
 
 ## Mode 2 — Google without Umbral
@@ -59,9 +60,11 @@ passwords.
 
 Rules: **with no `client_id` the button is not rendered** (ask
 `configured?/0` first); self-registration only for the domains in
-`GOOGLE_OAUTH_ALLOWED_DOMAINS`; the person is linked to their profile **by
-verified email** (no second profile is created); the app still issues *its own*
-session after the callback.
+`GOOGLE_OAUTH_ALLOWED_DOMAINS` — parsed as fixed in `SPEC-config.md`
+§Google OAuth: split on `,`, trim each entry, **raise on a blank entry**
+(a malformed list fails the boot, it never narrows silently); the person is
+linked to their profile **by verified email** (no second profile is created);
+the app still issues *its own* session after the callback.
 
 The same contract appears more than once in the family — same pair of actions,
 another copy. When porting a change, port it to every copy.
@@ -106,7 +109,8 @@ from the profile.
 - [ ] Local profile with its table and its migration (`binary_id`,
       `utc_datetime_usec`).
 - [ ] Mode 1: uniform error, timing-safe, rate limit, `renew: true`, first
-      account through onboarding.
+      account through guarded `/onboarding` or the opt-in seed (password from env,
+      setup advisory lock, idempotent). No open sign-up.
 - [ ] Mode 2: `configured?/0` gates the button; allowed domains; link by
       verified email.
 - [ ] Mode 3: the whole `SPEC-identity.md` (single-use `state`, token
